@@ -1,0 +1,77 @@
+cabal-version:      3.0
+name:               rateverything
+version:            0.1.0.0
+synopsis:           Letterboxd-style diary and reviews for anything: films, series, albums, games, books and custom categories
+license:            NONE
+build-type:         Simple
+extra-doc-files:    README.md
+
+common shared
+  default-language: GHC2021
+  default-extensions:
+    DataKinds
+    DeriveAnyClass
+    DerivingStrategies
+    DuplicateRecordFields
+    LambdaCase
+    OverloadedRecordDot
+    OverloadedStrings
+    RecordWildCards
+    TypeFamilies
+    TypeOperators
+  ghc-options: -Wall -Wcompat -Wno-name-shadowing
+
+library
+  import:          shared
+  hs-source-dirs:  src
+  exposed-modules:
+    Rateverything.App
+    Rateverything.Auth
+    Rateverything.Config
+    Rateverything.DB
+    Rateverything.Providers
+    Rateverything.Providers.Http
+    Rateverything.Providers.MusicBrainz
+    Rateverything.Providers.OpenLibrary
+    Rateverything.Providers.RAWG
+    Rateverything.Providers.TMDB
+    Rateverything.Server
+    Rateverything.Api
+    Rateverything.Types
+    Rateverything.Uploads
+  build-depends:
+    , base                >=4.18 && <5
+    , aeson               >=2.1
+    , base16-bytestring   >=1.0
+    , bytestring
+    , containers
+    , crypton             >=0.34
+    , directory
+    , filepath
+    , http-client         >=0.7
+    , http-client-tls     >=0.3
+    , http-types
+    , mtl
+    , servant             >=0.20
+    , servant-multipart   >=0.12
+    , servant-server      >=0.20
+    , sqlite-simple       >=0.4.18
+    , text                >=2.0
+    , time
+    , wai
+    , wai-app-static
+    , wai-extra
+    , warp
+
+executable rateverything
+  import:          shared
+  hs-source-dirs:  app
+  main-is:         Main.hs
+  ghc-options:     -threaded -rtsopts -with-rtsopts=-N
+  build-depends:
+    , base
+    , directory
+    , http-client-tls
+    , rateverything
+    , wai-extra
+    , warp
