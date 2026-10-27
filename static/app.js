@@ -101,25 +101,20 @@ function showError(target, err) { target.textContent = err.message || String(err
 function renderNav() {
   const u = session.user;
   const h = location.hash || "#/";
-  const pill = (href, label, active) => `<a class="nav-pill ${active ? "active" : ""}" href="${href}">${label}</a>`;
+  const pill = (href, label, active, extra = false) =>
+    `<a class="nav-pill ${active ? "active" : ""} ${extra ? "nav-extra" : ""}" href="${href}">${label}</a>`;
   const browsing = h === "#/" || h.startsWith("#/c/") || h.startsWith("#/item/");
   nav.innerHTML = `
     <div class="nav-links">
       ${pill("#/", "explorar", browsing)}
-      ${u ? pill(`#/u/${encodeURIComponent(u.username)}`, "diário", h.startsWith("#/u/")) : ""}
-      ${u ? pill("#/nova-categoria", "criar", h === "#/nova-categoria") : ""}
-    </div>
-    <div class="nav-center">
-      ${u
-        ? `${avatar(u.username)}<span>@${esc(u.username)}</span>`
-        : `<a class="nav-cta" href="#/entrar">entrar</a>`}
-      <span class="slot">${icon("plus")}</span><span class="slot">${icon("plus")}</span><span class="slot">${icon("plus")}</span>
+      ${u ? pill(`#/u/${encodeURIComponent(u.username)}`, "diário", h.startsWith("#/u/"), true) : ""}
+      ${u ? pill("#/nova-categoria", "criar", h === "#/nova-categoria", true) : ""}
     </div>
     <div class="nav-actions">
       ${u
-        ? `<a class="round" href="#/u/${encodeURIComponent(u.username)}" title="Meu diário">${icon("user")}</a>
+        ? `<a class="profile-btn" href="#/u/${encodeURIComponent(u.username)}" title="@${esc(u.username)} — meu diário">${avatar(u.username)}</a>
            <button class="round danger" id="logout" title="Sair">${icon("power")}</button>`
-        : `<a class="round" href="#/entrar" title="Entrar">${icon("user")}</a>`}
+        : `<a class="btn" href="#/entrar">${icon("user")} entrar</a>`}
     </div>`;
   const logout = document.getElementById("logout");
   if (logout) logout.onclick = async () => {
@@ -167,42 +162,108 @@ async function homePage() {
           </a>`).join("")}
         <a class="menu-pill" style="--i:${categories.length}" href="#/nova-categoria"><span class="box">${icon("plus")}</span>criar categoria</a>
       </div>
-      <div class="hero" id="hero">${mascot()}</div>
+      <div class="hero">${orbit(categories)}</div>
     </section>`;
-
-  // Show the most recently added covers as a fanned stack, if there are any.
-  const lists = await Promise.all(categories.map((c) => api(`/categories/${encodeURIComponent(c.slug)}/items`).catch(() => [])));
-  const recent = lists.flat().filter((i) => i.imageUrl).sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 5);
-  const hero = document.getElementById("hero");
-  if (hero && recent.length) hero.innerHTML = fan(recent);
+  startOrbit();
 }
 
-function fan(items) {
-  const mid = (items.length - 1) / 2;
-  return `<div class="fan">${items.map((it, i) => {
-    const k = i - mid;
-    const transform = `translate(${k * 100}px, ${Math.abs(k) * 22}px) rotate(${k * 8}deg)`;
-    return `<a href="#/item/${it.id}" title="${esc(it.title)}" style="transform:${transform}; z-index:${10 - Math.round(Math.abs(k) * 2)}">
-      ${cover(it.imageUrl, it.title, isSquare(it.source))}</a>`;
-  }).join("")}</div>
-  <span class="hero-caption">adicionados recentemente</span>`;
+// Cartoon objects, one per kind of category, that orbit on the home page.
+const INK = `stroke="#16112b" stroke-width="5" stroke-linejoin="round" stroke-linecap="round"`;
+const ORBITERS = [
+  { provider: "tmdb-movie", label: "Filmes", svg: `
+    <rect x="16" y="50" width="88" height="56" rx="8" fill="#ff4d6d" ${INK}/>
+    <rect x="16" y="50" width="88" height="14" fill="#fff" ${INK}/>
+    <path d="M34 50l-8 14M54 50l-8 14M74 50l-8 14M94 50l-8 14" ${INK}/>
+    <g transform="rotate(-16 18 48)"><rect x="16" y="32" width="88" height="16" rx="3" fill="#fff" ${INK}/>
+      <path d="M36 32l-8 16M56 32l-8 16M76 32l-8 16M96 32l-8 16" ${INK}/></g>
+    <circle cx="19" cy="49" r="5" fill="#16112b"/>` },
+  { provider: "tmdb-tv", label: "Séries", svg: `
+    <path d="M60 34 40 10M60 34 82 12" ${INK}/><circle cx="40" cy="10" r="5" fill="#ffc93c" ${INK}/><circle cx="82" cy="12" r="5" fill="#ffc93c" ${INK}/>
+    <rect x="12" y="34" width="96" height="70" rx="16" fill="#8b5cf6" ${INK}/>
+    <rect x="22" y="44" width="62" height="50" rx="10" fill="#9ff0ff" ${INK}/>
+    <path d="M30 54q8-6 16 0" stroke="#fff" stroke-width="4" fill="none" stroke-linecap="round"/>
+    <circle cx="96" cy="56" r="5" fill="#ffc93c" ${INK}/><circle cx="96" cy="78" r="5" fill="#ff6f91" ${INK}/>
+    <path d="M32 104l-6 10M88 104l6 10" ${INK}/>` },
+  { provider: "musicbrainz", label: "Álbuns", svg: `
+    <circle cx="60" cy="60" r="48" fill="#1d1638" ${INK}/>
+    <circle cx="60" cy="60" r="38" fill="none" stroke="#3d3470" stroke-width="2.5"/><circle cx="60" cy="60" r="29" fill="none" stroke="#3d3470" stroke-width="2.5"/>
+    <circle cx="60" cy="60" r="17" fill="#14b8a6" ${INK}/><circle cx="60" cy="60" r="3.5" fill="#16112b"/>
+    <path d="M32 36a36 36 0 0 1 22-12" stroke="#fff" stroke-width="4" fill="none" stroke-linecap="round" opacity=".7"/>` },
+  { provider: "rawg", label: "Jogos", svg: `
+    <path d="M32 38h56a24 24 0 0 1 24 24c0 20-6 38-19 38-9 0-13-11-22-11H49c-9 0-13 11-22 11-13 0-19-18-19-38a24 24 0 0 1 24-24z" fill="#3b82f6" ${INK}/>
+    <path d="M30 56v20M20 66h20" stroke="#fff" stroke-width="7" stroke-linecap="round"/>
+    <circle cx="84" cy="58" r="6" fill="#ffc93c" ${INK}/><circle cx="96" cy="72" r="6" fill="#ff6f91" ${INK}/>
+    <path d="M52 50h16" stroke="#16112b" stroke-width="5" stroke-linecap="round"/>` },
+  { provider: "openlibrary", label: "Livros", svg: `
+    <g transform="rotate(-10 60 60)">
+      <rect x="28" y="14" width="68" height="92" rx="6" fill="#fff" ${INK}/>
+      <rect x="22" y="12" width="68" height="92" rx="6" fill="#f59e0b" ${INK}/>
+      <rect x="22" y="12" width="14" height="92" rx="4" fill="#d97706" ${INK}/>
+      <path d="M48 36h30M48 48h22" stroke="#fff" stroke-width="5" stroke-linecap="round"/>
+    </g>` },
+  { provider: null, label: "Crie sua categoria", svg: `
+    <rect x="20" y="50" width="80" height="58" rx="6" fill="#ec4899" ${INK}/>
+    <rect x="14" y="34" width="92" height="20" rx="6" fill="#f472b6" ${INK}/>
+    <path d="M60 34v74" stroke="#ffc93c" stroke-width="10"/>
+    <path d="M60 32c-10-18-30-14-24-4 4 6 16 6 24 4zM60 32c10-18 30-14 24-4-4 6-16 6-24 4z" fill="#ffc93c" ${INK}/>
+    <text x="30" y="94" font-family="Fredoka, sans-serif" font-weight="700" font-size="30" fill="#fff" stroke="#16112b" stroke-width="4" paint-order="stroke">?</text>` },
+];
+
+function orbit(categories) {
+  const hrefFor = (provider) => {
+    if (!provider) return "#/nova-categoria";
+    const c = categories.find((c) => c.provider === provider);
+    return c ? `#/c/${encodeURIComponent(c.slug)}` : "#/";
+  };
+  return `<div class="orbit" id="orbit">
+      <span class="orbit-core"></span>
+      <span class="orbit-ring"></span>
+      ${ORBITERS.map((o) => `<a class="orbiter" href="${hrefFor(o.provider)}" title="${esc(o.label)}">
+        <svg viewBox="0 0 120 120" aria-hidden="true">${o.svg}</svg><span class="orbiter-label">${esc(o.label)}</span></a>`).join("")}
+    </div>
+    <span class="hero-caption">dê nota em tudo.</span>`;
 }
 
-function mascot() {
-  const bubble = (name, color, x, y) =>
-    `<span class="bubble" style="left:${x}%;top:${y}%"><span class="badge-ico" style="--c:${color}">${icon(name)}</span></span>`;
-  return `<div class="mascot">
-    <span class="ring"></span>
-    <svg class="star" viewBox="0 0 200 200" aria-hidden="true">
-      <path d="M100 14 124 66 181 72 138 111 150 168 100 139 50 168 62 111 19 72 76 66Z" fill="#ffc93c" stroke="#16112b" stroke-width="9" stroke-linejoin="round"/>
-      <ellipse cx="84" cy="96" rx="8" ry="12" fill="#16112b"/><ellipse cx="116" cy="96" rx="8" ry="12" fill="#16112b"/>
-      <path d="M88 120q12 10 24 0" fill="none" stroke="#16112b" stroke-width="6" stroke-linecap="round"/>
-      <circle cx="72" cy="114" r="7" fill="#ff8fa3" opacity=".7"/><circle cx="128" cy="114" r="7" fill="#ff8fa3" opacity=".7"/>
-    </svg>
-    ${bubble("film", "#ff4d6d", 12, 14)}${bubble("disc", "#14b8a6", 78, 8)}
-    ${bubble("gamepad", "#3b82f6", 84, 58)}${bubble("book", "#f59e0b", 6, 60)}
-    <span class="hero-caption">dê nota em tudo.</span>
-  </div>`;
+// Moves the orbiters along a tilted ellipse; the ones "behind" shrink and dim.
+function startOrbit() {
+  const el = document.getElementById("orbit");
+  if (!el) return;
+  const items = [...el.querySelectorAll(".orbiter")];
+  const ring = el.querySelector(".orbit-ring");
+  const tilt = (-9 * Math.PI) / 180;
+  let angle = 0;
+  let paused = false;
+  el.addEventListener("mouseenter", () => (paused = true));
+  el.addEventListener("mouseleave", () => (paused = false));
+
+  const place = () => {
+    const w = el.clientWidth, h = el.clientHeight;
+    const rx = w * 0.4, ry = h * 0.17, cx = w / 2, cy = h * 0.5;
+    ring.style.width = `${rx * 2}px`;
+    ring.style.height = `${ry * 2}px`;
+    items.forEach((item, i) => {
+      const a = angle + (i * 2 * Math.PI) / items.length;
+      const dx = rx * Math.cos(a), dy = ry * Math.sin(a);
+      const x = cx + dx * Math.cos(tilt) - dy * Math.sin(tilt);
+      const y = cy + dx * Math.sin(tilt) + dy * Math.cos(tilt);
+      const depth = (Math.sin(a) + 1) / 2; // 0 = behind, 1 = in front
+      const wobble = Math.sin(a * 2) * 10;
+      item.style.transform = `translate(${x}px, ${y}px) translate(-50%, -50%) scale(${0.55 + 0.55 * depth}) rotate(${wobble}deg)`;
+      item.style.zIndex = String(Math.round(depth * 100));
+      item.style.filter = `brightness(${0.7 + 0.3 * depth})`;
+    });
+  };
+
+  if (matchMedia("(prefers-reduced-motion: reduce)").matches) { place(); return; }
+  let last = performance.now();
+  const frame = (now) => {
+    if (!el.isConnected) return; // the page changed
+    if (!paused) angle += ((now - last) / 1000) * 0.45;
+    last = now;
+    place();
+    requestAnimationFrame(frame);
+  };
+  requestAnimationFrame(frame);
 }
 
 async function categoryPage(slug) {
