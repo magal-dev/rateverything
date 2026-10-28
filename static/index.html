@@ -53,6 +53,26 @@
             <circle cx="-8" cy="10" r="9" fill="#8a4b2a"/><circle cx="9" cy="12" r="9" fill="#8a4b2a"/>
           </g>
         </symbol>
+        <linearGradient id="beam" x1="0" y1="1" x2="0" y2="0">
+          <stop offset="0" stop-color="#fff6d6" stop-opacity=".5"/>
+          <stop offset="1" stop-color="#fff6d6" stop-opacity="0"/>
+        </linearGradient>
+        <!-- Vehicles take their paint from the `color` of each <use>. -->
+        <symbol id="car" viewBox="0 0 100 46" overflow="visible">
+          <path d="M6 34Q6 22 20 20L32 8H66L80 20Q94 22 94 34V38H6Z" fill="currentColor" stroke="#16112b" stroke-width="4" stroke-linejoin="round"/>
+          <path d="M36 12H48V20H28ZM54 12H64L74 20H54Z" fill="#9ff0ff" stroke="#16112b" stroke-width="3" stroke-linejoin="round"/>
+          <circle cx="26" cy="38" r="8" fill="#16112b"/><circle cx="74" cy="38" r="8" fill="#16112b"/>
+          <circle cx="26" cy="38" r="3" fill="#efe9ff"/><circle cx="74" cy="38" r="3" fill="#efe9ff"/>
+          <circle cx="90" cy="28" r="3" fill="#fff4b8"/>
+        </symbol>
+        <symbol id="bus" viewBox="0 0 150 56" overflow="visible">
+          <rect x="4" y="6" width="142" height="40" rx="10" fill="#ff6f91" stroke="#16112b" stroke-width="4"/>
+          <path d="M18 14h18v12H18zM44 14h18v12H44zM70 14h18v12H70zM96 14h18v12H96z" fill="#9ff0ff" stroke="#16112b" stroke-width="3"/>
+          <path d="M122 14h16v26h-16z" fill="#ffd36b" stroke="#16112b" stroke-width="3"/>
+          <text x="62" y="41" font-family="Fredoka, sans-serif" font-weight="700" font-size="11" fill="#fff" text-anchor="middle">HOLLYWOOD TOURS</text>
+          <circle cx="32" cy="46" r="9" fill="#16112b"/><circle cx="118" cy="46" r="9" fill="#16112b"/>
+          <circle cx="32" cy="46" r="3.5" fill="#efe9ff"/><circle cx="118" cy="46" r="3.5" fill="#efe9ff"/>
+        </symbol>
         <symbol id="walkStar" viewBox="-12 -12 24 24">
           <path d="M0-10 2.9-3.1 10-3.1 4.3 1.2 6.4 8.5 0 4.2-6.4 8.5-4.3 1.2-10-3.1-2.9-3.1Z" fill="#ff6f91" stroke="#ffd36b" stroke-width="1.8" stroke-linejoin="round"/>
         </symbol>
@@ -72,6 +92,23 @@
         <circle cx="860" cy="250" r="120" fill="url(#sunFill)" mask="url(#sunStripes)"/>
       </g>
 
+      <!-- Premiere searchlights sweeping the sky (their base hides behind the mountains) -->
+      <g class="layer" data-depth=".18">
+        <path class="beam" d="M455 600 405 -60H535L485 600Z" fill="url(#beam)"/>
+        <path class="beam b2" d="M645 600 595 -60H725L675 600Z" fill="url(#beam)"/>
+      </g>
+
+      <!-- A blimp cruising over the city -->
+      <g class="layer" data-depth=".15">
+        <g transform="translate(420 215)"><g class="blimp">
+          <path d="M-60-6-88-30-80 0-88 30-60 6Z" fill="#ff7a2f" stroke="#16112b" stroke-width="4" stroke-linejoin="round"/>
+          <ellipse rx="74" ry="27" fill="#efe9ff" stroke="#16112b" stroke-width="5"/>
+          <path d="M-38-16q34-12 72-2" stroke="#fff" stroke-width="5" fill="none" stroke-linecap="round"/>
+          <rect x="-18" y="24" width="36" height="13" rx="5" fill="#ff7a2f" stroke="#16112b" stroke-width="4"/>
+          <text x="6" y="10" font-family="Fredoka, sans-serif" font-weight="700" font-size="26" fill="#ff7a2f" text-anchor="middle">rate</text>
+        </g></g>
+      </g>
+
       <g class="layer" data-depth=".22">
       <g class="cloud" fill="#ffe3f1" opacity=".85">
         <rect x="140" y="170" width="190" height="40" rx="20"/><circle cx="200" cy="168" r="34"/><circle cx="250" cy="174" r="24"/>
@@ -88,21 +125,44 @@
       <path class="layer" data-depth=".25" d="M-160 560L0 520C150 430 260 470 380 420S620 380 760 440 1000 400 1150 430 1400 370 1600 440L1760 480V900H-160Z" fill="#9c66d6"/>
       <!-- Hollywood hills with the sign, Griffith Observatory on the shoulder -->
       <g class="layer" data-depth=".4">
-      <path d="M700 700C850 420 1000 300 1180 285S1480 300 1600 360L1760 400V900H700Z" fill="#6d3dbd" stroke="#16112b" stroke-width="6" stroke-linejoin="round"/>
+      <path d="M700 700C770 590 800 490 822 440H1004C1050 340 1100 290 1180 285S1480 300 1600 360L1760 400V900H700Z" fill="#6d3dbd" stroke="#16112b" stroke-width="6" stroke-linejoin="round"/>
       <g font-family="Fredoka, sans-serif" font-weight="700" font-size="52" fill="#fff" stroke="#16112b" stroke-width="5" paint-order="stroke" text-anchor="middle">
         <text x="1064" y="336">H</text><text x="1110" y="328">O</text><text x="1152" y="323">L</text>
         <text x="1188" y="320">L</text><text x="1228" y="319">Y</text><text x="1278" y="319">W</text>
         <text x="1328" y="321">O</text><text x="1374" y="325">O</text><text x="1420" y="330">D</text>
       </g>
-      <g stroke="#16112b" stroke-width="4" stroke-linejoin="round" fill="#efe9ff">
-        <rect x="862" y="404" width="92" height="24" rx="4"/>
-        <path d="M887 404a21 21 0 0 1 42 0Z"/>
-        <path d="M864 404a9 9 0 0 1 18 0Z"/><path d="M934 404a9 9 0 0 1 18 0Z"/>
+      <!-- Griffith Observatory: copper main dome, two side domes, art deco front -->
+      <g stroke="#16112b" stroke-width="4" stroke-linejoin="round">
+        <rect x="818" y="428" width="190" height="14" rx="4" fill="#d9cdfa"/>
+        <rect x="834" y="392" width="158" height="38" rx="5" fill="#f3efff"/>
+        <path d="M836 394a16 16 0 0 1 32 0Z" fill="#49c2a8"/>
+        <path d="M958 394a16 16 0 0 1 32 0Z" fill="#49c2a8"/>
+        <rect x="886" y="368" width="54" height="62" rx="4" fill="#f3efff"/>
+        <path d="M880 370a33 33 0 0 1 66 0Z" fill="#49c2a8"/>
+        <path d="M913 337v-10" fill="none"/>
+        <path d="M896 368q4-22 17-30M930 368q-4-22-17-30" fill="none" stroke-width="3"/>
+        <path d="M904 430v-30a9 9 0 0 1 18 0v30Z" fill="#ffd36b"/>
       </g>
+      <g fill="#6d3dbd">
+        <rect x="846" y="404" width="10" height="16" rx="3"/><rect x="866" y="404" width="10" height="16" rx="3"/>
+        <rect x="950" y="404" width="10" height="16" rx="3"/><rect x="970" y="404" width="10" height="16" rx="3"/>
+      </g>
+      <path d="M840 382a12 12 0 0 1 8-10" stroke="#fff" stroke-width="3" fill="none" stroke-linecap="round" opacity=".8"/>
+      <path d="M888 360a28 28 0 0 1 14-20" stroke="#fff" stroke-width="4" fill="none" stroke-linecap="round" opacity=".8"/>
       </g>
 
       <!-- Downtown skyline -->
       <g class="layer" data-depth=".55" stroke="#16112b" stroke-width="5" stroke-linejoin="round">
+        <!-- Capitol Records tower: a stack of records with a blinking spire -->
+        <path d="M1070 528V470" fill="none" stroke-width="4"/>
+        <circle class="blink" cx="1070" cy="466" r="7" fill="#ff4d5e" stroke-width="3"/>
+        <path d="M1044 528H1096L1110 750H1030Z" fill="#2b1f5e"/>
+        <g fill="#e7defc" stroke-width="3">
+          <rect x="1040" y="524" width="60" height="12" rx="6"/><rect x="1038" y="552" width="64" height="12" rx="6"/>
+          <rect x="1036" y="580" width="68" height="12" rx="6"/><rect x="1034" y="608" width="72" height="12" rx="6"/>
+          <rect x="1032" y="636" width="76" height="12" rx="6"/><rect x="1030" y="664" width="80" height="12" rx="6"/>
+          <rect x="1028" y="692" width="84" height="12" rx="6"/>
+        </g>
         <rect x="1120" y="610" width="58" height="140" rx="6" fill="#33246a"/><rect x="1126" y="616" width="46" height="128" fill="url(#windows)" stroke="none"/>
         <rect x="1185" y="560" width="70" height="190" rx="6" fill="#2b1f5e"/><rect x="1191" y="566" width="58" height="178" fill="url(#windows)" stroke="none"/>
         <rect x="1262" y="468" width="82" height="282" rx="14" fill="#33246a"/><rect x="1270" y="480" width="66" height="264" fill="url(#windows)" stroke="none"/>
@@ -111,6 +171,24 @@
         <path d="M1424 750V522Q1452 470 1494 452V750Z" fill="#3a2a78"/><path d="M1432 750V530Q1455 490 1486 474V750Z" fill="url(#windows)" stroke="none"/>
         <path d="M1494 452V404" fill="none"/>
         <rect x="1502" y="600" width="72" height="150" rx="6" fill="#2b1f5e"/><rect x="1508" y="606" width="60" height="138" fill="url(#windows)" stroke="none"/>
+      </g>
+
+      <!-- Santa Monica pier Ferris wheel -->
+      <g class="layer" data-depth=".65">
+        <path d="M470 560 418 724M470 560 522 724" stroke="#16112b" stroke-width="12" stroke-linecap="round"/>
+        <path d="M470 560 418 724M470 560 522 724" stroke="#ff9a5a" stroke-width="5" stroke-linecap="round"/>
+        <g class="wheel">
+          <circle cx="470" cy="560" r="96" fill="none" stroke="#16112b" stroke-width="12"/>
+          <circle cx="470" cy="560" r="96" fill="none" stroke="#ffd36b" stroke-width="5"/>
+          <path d="M374 560H566M470 464V656M402 492 538 628M538 492 402 628" stroke="#ffd36b" stroke-width="3" opacity=".9"/>
+          <g stroke="#16112b" stroke-width="3">
+            <circle cx="566" cy="560" r="11" fill="#ff6f91"/><circle cx="374" cy="560" r="11" fill="#4ff0c0"/>
+            <circle cx="470" cy="464" r="11" fill="#ffc93c"/><circle cx="470" cy="656" r="11" fill="#8b5cf6"/>
+            <circle cx="538" cy="492" r="11" fill="#3b82f6"/><circle cx="402" cy="628" r="11" fill="#ff7a2f"/>
+            <circle cx="538" cy="628" r="11" fill="#14b8a6"/><circle cx="402" cy="492" r="11" fill="#ec4899"/>
+          </g>
+        </g>
+        <circle cx="470" cy="560" r="14" fill="#ff7a2f" stroke="#16112b" stroke-width="4"/>
       </g>
 
       <g class="layer" data-depth=".85">
@@ -134,6 +212,11 @@
       </g>
       <rect x="-170" y="840" width="1940" height="160" fill="#2a2150"/>
       <path d="M-160 872H1760" stroke="#ffd36b" stroke-width="7" stroke-dasharray="46 34"/>
+      <!-- Traffic on the boulevard -->
+      <use class="car" href="#car" x="0" y="826" width="100" height="46" style="color:#ffc93c"/>
+      <use class="car c2" href="#car" x="0" y="826" width="100" height="46" style="color:#4ff0c0"/>
+      <use class="car c3" href="#car" x="0" y="826" width="100" height="46" style="color:#ff4d6d"/>
+      <use class="bus" href="#bus" x="0" y="868" width="150" height="56"/>
       </g>
     </svg>
   </div>
