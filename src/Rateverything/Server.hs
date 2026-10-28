@@ -64,6 +64,7 @@ publicServer =
 privateServer :: ServerT PrivateApi AppM
 privateServer user =
   pure user
+    :<|> updateAvatar user
     :<|> logout
     :<|> createCategory user
     :<|> importItem
@@ -107,6 +108,12 @@ logout header = do
   let token = T.strip (T.drop (T.length "Bearer ") header)
   runDb $ \conn -> DB.deleteSession conn (hashToken token)
   pure NoContent
+
+updateAvatar :: User -> AvatarForm -> AppM User
+updateAvatar user form = do
+  uploadDir <- asks (.config.uploadDir)
+  url <- liftIO (saveImage uploadDir form.imagePath) >>= either (failWith err400) pure
+  runDb $ \conn -> DB.setAvatar conn user.id url
 
 -- Categories -----------------------------------------------------------------
 

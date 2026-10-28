@@ -6,6 +6,7 @@ module Rateverything.Api
   , PublicApi
   , PrivateApi
   , NewItemForm (..)
+  , AvatarForm (..)
   ) where
 
 import Data.Text (Text)
@@ -31,6 +32,7 @@ type PublicApi =
 type PrivateApi =
   AuthProtect "bearer"
     :> ( "me" :> Get '[JSON] User
+          :<|> "me" :> "avatar" :> MultipartForm Tmp AvatarForm :> Post '[JSON] User
           :<|> "auth" :> "logout" :> Header' '[Required, Strict] "Authorization" Text :> PostNoContent
           :<|> "categories" :> ReqBody '[JSON] NewCategory :> Post '[JSON] Category
           :<|> "categories" :> Capture "slug" Text :> "import" :> ReqBody '[JSON] ExternalItem :> Post '[JSON] Item
@@ -72,3 +74,9 @@ instance FromMultipart Tmp NewItemForm where
         Right v | not (T.null (T.strip v)) -> Just (T.strip v)
         _ -> Nothing
       parseYear v = maybe (Left "year must be a number") Right (readMaybe (T.unpack v))
+
+-- | A new profile picture, sent as @multipart/form-data@ in the @image@ field.
+newtype AvatarForm = AvatarForm {imagePath :: FilePath}
+
+instance FromMultipart Tmp AvatarForm where
+  fromMultipart form = AvatarForm . fdPayload <$> lookupFile "image" form

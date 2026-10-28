@@ -6,6 +6,7 @@ module Rateverything.DB
   , insertUser
   , findUserByName
   , findUserByTokenHash
+  , setAvatar
   , insertSession
   , deleteSession
     -- * Categories
@@ -110,12 +111,13 @@ migrations =
         \  ('livros', 'Livros', 'Livros via Open Library', 'openlibrary')"
       ]
     )
+  , (2, ["ALTER TABLE users ADD COLUMN avatar_url TEXT"])
   ]
 
 -- Users and sessions ---------------------------------------------------------
 
 userColumns :: Query
-userColumns = "id, username, created_at"
+userColumns = "id, username, avatar_url, created_at"
 
 insertUser :: Connection -> Text -> Text -> IO User
 insertUser conn name passwordHash = do
@@ -136,8 +138,14 @@ findUserByTokenHash conn tokenHash =
   listToMaybe
     <$> query
       conn
-      "SELECT u.id, u.username, u.created_at FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token_hash = ?"
+      "SELECT u.id, u.username, u.avatar_url, u.created_at FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token_hash = ?"
       (Only tokenHash)
+
+-- | Sets the user's profile picture URL and returns the updated user.
+setAvatar :: Connection -> UserId -> Text -> IO User
+setAvatar conn uid url = do
+  execute conn "UPDATE users SET avatar_url = ? WHERE id = ?" (url, uid)
+  single "row" =<< query conn ("SELECT " <> userColumns <> " FROM users WHERE id = ?") (Only uid)
 
 insertSession :: Connection -> Text -> UserId -> IO ()
 insertSession conn tokenHash uid =
@@ -253,7 +261,7 @@ insertManualItem conn cid uid title subtitle year imageUrl description = do
 -- Reviews --------------------------------------------------------------------
 
 reviewColumns :: Query
-reviewColumns = "r.id, r.user_id, u.username, r.item_id, r.rating, r.body, r.liked, r.consumed_on, r.created_at"
+reviewColumns = "r.id, r.user_id, u.username, u.avatar_url, r.item_id, r.rating, r.body, r.liked, r.consumed_on, r.created_at"
 
 insertReview :: Connection -> UserId -> ItemId -> NewReview -> IO Review
 insertReview conn uid iid new = do

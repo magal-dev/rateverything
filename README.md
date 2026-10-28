@@ -70,6 +70,7 @@ Com `Authorization: Bearer <token>`:
 | Método | Rota | |
 |---|---|---|
 | GET | `/api/me` | |
+| POST | `/api/me/avatar` | multipart: `image` (foto de perfil) → usuário atualizado |
 | POST | `/api/auth/logout` | |
 | POST | `/api/categories` | `{name, description}` |
 | POST | `/api/categories/:slug/import` | um `ExternalItem` da busca |

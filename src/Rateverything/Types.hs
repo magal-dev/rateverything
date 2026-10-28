@@ -35,13 +35,14 @@ type ReviewId = Int
 data User = User
   { id :: UserId
   , username :: Text
+  , avatarUrl :: Maybe Text
   , createdAt :: UTCTime
   }
   deriving stock (Show, Generic)
   deriving anyclass (ToJSON)
 
 instance FromRow User where
-  fromRow = User <$> field <*> field <*> field
+  fromRow = User <$> field <*> field <*> field <*> field
 
 -- | A kind of thing that can be rated. Built-in categories are backed by an
 -- external provider ("tmdb-movie", "musicbrainz", ...); custom ones belong to
@@ -88,6 +89,7 @@ data Review = Review
   { id :: ReviewId
   , userId :: UserId
   , username :: Text
+  , avatarUrl :: Maybe Text
   , itemId :: ItemId
   , rating :: Maybe Int
   , body :: Maybe Text
@@ -101,7 +103,7 @@ data Review = Review
 instance FromRow Review where
   fromRow =
     Review <$> field <*> field <*> field <*> field <*> field
-      <*> field <*> field <*> field <*> field
+      <*> field <*> field <*> field <*> field <*> field
 
 -- | What a provider returns from a search, before it is stored locally.
 data ExternalItem = ExternalItem

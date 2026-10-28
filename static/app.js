@@ -82,7 +82,10 @@ window.coverFailed = (img) => {
 
 const isSquare = (source) => source === "musicbrainz";
 const dateOf = (r) => r.consumedOn || r.createdAt.slice(0, 10);
-const avatar = (name) => `<span class="avatar">${esc((name || "?")[0])}</span>`;
+// Profile picture, or the first letter of the username when there is none.
+const avatar = (name, url) => url
+  ? `<img class="avatar" src="${esc(url)}" alt="">`
+  : `<span class="avatar">${esc((name || "?")[0])}</span>`;
 
 function card({ title, subtitle, year, imageUrl, source }, onClick) {
   const el = document.createElement("div");
@@ -112,9 +115,10 @@ function renderNav() {
     </div>
     <div class="nav-actions">
       ${u
-        ? `<a class="profile-btn" href="#/u/${encodeURIComponent(u.username)}" title="@${esc(u.username)} — meu diário">${avatar(u.username)}</a>
+        ? `<a class="profile-btn" href="#/u/${encodeURIComponent(u.username)}" title="@${esc(u.username)} — meu diário">${avatar(u.username, u.avatarUrl)}</a>
            <button class="round danger" id="logout" title="Sair">${icon("power")}</button>`
-        : `<a class="btn" href="#/entrar">${icon("user")} entrar</a>`}
+        : `<a class="btn secondary" href="#/entrar">entrar</a>
+           <a class="btn nav-extra" href="#/criar-conta">${icon("user")} criar conta</a>`}
     </div>`;
   const logout = document.getElementById("logout");
   if (logout) logout.onclick = async () => {
@@ -130,7 +134,8 @@ const routes = [
   [/^#\/item\/(\d+)$/, (id) => itemPage(Number(id))],
   [/^#\/u\/([^/]+)$/, (name) => diaryPage(decodeURIComponent(name))],
   [/^#\/nova-categoria$/, () => newCategoryPage()],
-  [/^#\/entrar$/, () => loginPage()],
+  [/^#\/entrar$/, () => authPage("login")],
+  [/^#\/criar-conta$/, () => authPage("register")],
 ];
 
 async function route() {
@@ -366,7 +371,7 @@ async function itemPage(id) {
 function reviewHtml(r) {
   const mine = session.user && session.user.id === r.userId;
   return `<div class="review">
-    ${avatar(r.username)}
+    ${avatar(r.username, r.avatarUrl)}
     <div>
       <div class="review-meta">
         <a href="#/u/${encodeURIComponent(r.username)}"><strong>${esc(r.username)}</strong></a>
@@ -429,10 +434,27 @@ function bindReviewForm(itemId) {
   });
 }
 
+// A one-shot notice shown on the next page that reads it (e.g. after sign-up).
+let flashMessage = null;
+
 async function diaryPage(name) {
   const entries = await api(`/users/${encodeURIComponent(name)}/diary`);
+  const me = session.user;
+  const own = me && me.username === name.toLowerCase();
+  const photo = own ? me.avatarUrl : entries[0]?.review.avatarUrl;
+  const notice = flashMessage;
+  flashMessage = null;
   app.innerHTML = `
-    <div class="panel profile-head tilt-l">${avatar(name)}<div><h1>${esc(name)}</h1><div class="muted">${entries.length} registro(s) no diário</div></div></div>
+    <div class="panel profile-head tilt-l">
+      ${own
+        ? `<label class="avatar-pick" title="Trocar foto de perfil">
+             <input type="file" accept="image/jpeg,image/png,image/gif,image/webp" hidden id="photo-input">
+             <span class="avatar-preview filled" id="photo-preview">${avatar(name, photo)}</span>
+           </label>`
+        : avatar(name, photo)}
+      <div><h1>${esc(name)}</h1><div class="muted">${entries.length} registro(s) no diário${own ? " · clique na foto para trocar" : ""}</div>
+        <div class="error" id="photo-error">${esc(notice || "")}</div></div>
+    </div>
     <div class="panel">${entries.length ? entries.map(({ review: r, item }) => `
       <div class="diary-row">
         <span class="date-tag">${esc(dateOf(r))}</span>
@@ -442,6 +464,17 @@ async function diaryPage(name) {
         <div><span class="stars">${stars(r.rating)}</span> ${r.liked ? `<span class="heart">♥</span>` : ""}</div>
       </div>`).join("") : `<span class="muted">Nenhum registro ainda.</span>`}
     </div>`;
+
+  if (own) {
+    const input = document.getElementById("photo-input");
+    const error = document.getElementById("photo-error");
+    bindPhotoPreview(input, document.getElementById("photo-preview"), error);
+    input.addEventListener("change", async () => {
+      if (!input.files[0]) return;
+      try { await uploadAvatar(input.files[0]); renderNav(); }
+      catch (e) { showError(error, e); }
+    });
+  }
 }
 
 function newCategoryPage() {
@@ -488,23 +521,85 @@ function newItemPage(slug) {
   });
 }
 
-function loginPage() {
-  app.innerHTML = `<div class="narrow"><form class="panel form tilt-l" id="login-form">
-      <h1>entrar</h1>
-      <label>Usuário <input type="text" name="username" autocomplete="username" required></label>
-      <label>Senha <input type="password" name="password" autocomplete="current-password" required></label>
-      <div class="error" id="login-error"></div>
-      <div class="review-top"><button class="btn" name="action" value="login">entrar</button>
-        <button class="btn secondary" name="action" value="register">criar conta</button></div>
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+
+// Shows a chosen image file inside a round preview element.
+function bindPhotoPreview(input, preview, error) {
+  input.addEventListener("change", () => {
+    const file = input.files[0];
+    if (!file) return;
+    if (file.size > MAX_IMAGE_BYTES) { input.value = ""; error.textContent = "A foto pode ter no máximo 5 MB."; return; }
+    error.textContent = "";
+    preview.innerHTML = `<img src="${URL.createObjectURL(file)}" alt="">`;
+  });
+}
+
+async function uploadAvatar(file) {
+  const form = new FormData();
+  form.append("image", file);
+  const user = await api("/me/avatar", { method: "POST", form });
+  session.save({ token: session.token, user });
+  return user;
+}
+
+// Login and sign-up share one page with two tabs.
+function authPage(mode) {
+  const register = mode === "register";
+  app.innerHTML = `<div class="narrow"><form class="panel form tilt-l" id="auth-form" novalidate>
+      <div class="auth-tabs">
+        <a class="${register ? "" : "active"}" href="#/entrar">entrar</a>
+        <a class="${register ? "active" : ""}" href="#/criar-conta">criar conta</a>
+      </div>
+      ${register ? `
+        <label class="avatar-pick" title="Escolher foto de perfil">
+          <input type="file" name="image" accept="image/jpeg,image/png,image/gif,image/webp" hidden>
+          <span class="avatar-preview" id="avatar-preview">${icon("user")}</span>
+          <span>foto de perfil <span class="muted">(opcional)</span></span>
+        </label>` : ""}
+      <label>Usuário <input type="text" name="username" autocomplete="username" maxlength="30" required>
+        ${register ? `<span class="hint">3 a 30 caracteres: letras minúsculas, números ou _</span>` : ""}</label>
+      <label>Senha <input type="password" name="password" autocomplete="${register ? "new-password" : "current-password"}" required>
+        ${register ? `<span class="hint">pelo menos 8 caracteres</span>` : ""}</label>
+      ${register ? `<label>Confirmar senha <input type="password" name="confirm" autocomplete="new-password" required></label>` : ""}
+      <div class="error" id="auth-error"></div>
+      <div><button class="btn">${register ? "criar conta" : "entrar"}</button></div>
+      <p class="muted switch">${register
+        ? `Já tem conta? <a href="#/entrar">Entrar</a>`
+        : `Ainda não tem conta? <a href="#/criar-conta">Criar conta</a>`}</p>
     </form></div>`;
-  document.getElementById("login-form").addEventListener("submit", async (ev) => {
+
+  const form = document.getElementById("auth-form");
+  const error = document.getElementById("auth-error");
+  if (register) bindPhotoPreview(form.image, document.getElementById("avatar-preview"), error);
+
+  form.addEventListener("submit", async (ev) => {
     ev.preventDefault();
-    const f = new FormData(ev.target);
-    const action = ev.submitter?.value === "register" ? "register" : "login";
+    const f = new FormData(form);
+    const username = f.get("username").trim().toLowerCase();
+    const password = f.get("password");
+    if (register) {
+      if (!/^[a-z0-9_]{3,30}$/.test(username)) { error.textContent = "Usuário: 3 a 30 caracteres, só letras minúsculas, números ou _."; return; }
+      if (password.length < 8) { error.textContent = "A senha precisa ter pelo menos 8 caracteres."; return; }
+      if (password !== f.get("confirm")) { error.textContent = "As senhas não conferem."; return; }
+    } else if (!username || !password) { error.textContent = "Preencha usuário e senha."; return; }
+
+    const button = form.querySelector("button");
+    button.disabled = true;
     try {
-      const s = await api(`/auth/${action}`, { method: "POST", json: { username: f.get("username").trim().toLowerCase(), password: f.get("password") } });
-      session.save(s); location.hash = "#/";
-    } catch (e) { showError(document.getElementById("login-error"), e); }
+      session.save(await api(`/auth/${register ? "register" : "login"}`, { method: "POST", json: { username, password } }));
+    } catch (e) { showError(error, e); button.disabled = false; return; }
+
+    const photo = register ? f.get("image") : null;
+    if (photo && photo.size) {
+      try { await uploadAvatar(photo); }
+      catch (e) {
+        // The account exists already; the photo can be retried from the profile page.
+        location.hash = `#/u/${encodeURIComponent(username)}`;
+        flashMessage = "Conta criada, mas a foto não foi enviada: " + e.message;
+        return;
+      }
+    }
+    location.hash = "#/";
   });
 }
 
