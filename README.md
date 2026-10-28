@@ -22,7 +22,7 @@ Abra http://localhost:8080.
 | Álbuns | [MusicBrainz](https://musicbrainz.org/doc/MusicBrainz_API) + Cover Art Archive | nenhuma (só `MUSICBRAINZ_USER_AGENT` com contato) |
 | Livros | [Open Library](https://openlibrary.org/developers/api) | nenhuma |
 
-Sem chave, a busca daquela categoria responde 502 com a explicação; o resto funciona.
+Sem chave, a busca daquela categoria responde 503 com a explicação; o resto funciona.
 
 ## Como funciona
 
@@ -30,7 +30,8 @@ Sem chave, a busca daquela categoria responde 502 com a explicação; o resto fu
 - **Busca**: consulta o provedor externo em tempo real (nada é salvo) + itens manuais da categoria. Cada resultado indica se já existe localmente (`itemId`).
 - **Importação**: ao abrir um resultado externo, ele vira um `item` local (único por `source` + `external_id`), e aí pode receber reviews.
 - **Itens manuais**: `multipart/form-data` com foto opcional. A imagem é validada pelos *magic bytes*, limitada a 5 MB e salva em `uploads/` com nome aleatório.
-- **Reviews**: nota 1–10 (= ½ a 5 estrelas), texto, ♥ e data. Múltiplos registros por item (rever/reouvir) formam o diário.
+- **Reviews**: nota 1–10 (= ½ a 5 estrelas), texto, ♥ e data (de 1900 até hoje). Múltiplos registros por item (rever/reouvir) formam o diário.
+- **Falhas de provedor**: se a API externa cai ou responde erro, a busca devolve 503 com uma mensagem amigável (o detalhe técnico vai só para o log, sem a chave de API) e o frontend oferece "tentar novamente".
 - **Auth**: senha com bcrypt; sessão via token Bearer aleatório, só o hash SHA-256 fica no banco.
 
 ## Estrutura

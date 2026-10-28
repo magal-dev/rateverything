@@ -6,7 +6,7 @@ module Rateverything.Providers
 import Data.Text (Text)
 import Network.HTTP.Client (Manager)
 import Rateverything.Config (Config (..))
-import Rateverything.Providers.Http (ProviderError)
+import Rateverything.Providers.Http (ProviderError (..))
 import Rateverything.Providers.MusicBrainz (searchAlbums)
 import Rateverything.Providers.OpenLibrary (searchBooks)
 import Rateverything.Providers.RAWG (searchGames)
@@ -21,6 +21,6 @@ searchProvider config manager provider term = case provider of
   "rawg" -> withKey "RAWG_API_KEY" config.rawgApiKey $ \k -> searchGames manager k term
   "musicbrainz" -> searchAlbums manager config.musicBrainzUserAgent term
   "openlibrary" -> searchBooks manager term
-  other -> pure (Left ("Unknown provider: " <> other))
+  other -> pure (Left (ProviderUnavailable ("Unknown provider: " <> other)))
   where
-    withKey name key action = maybe (pure (Left (name <> " is not configured"))) action key
+    withKey name key action = maybe (pure (Left (ProviderNotConfigured name))) action key

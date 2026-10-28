@@ -13,16 +13,35 @@ const session = {
   clear() { localStorage.removeItem("token"); localStorage.removeItem("user"); },
 };
 
+// status 0 means the request never reached the server.
+class ApiError extends Error {
+  constructor(message, status) { super(message); this.status = status; }
+  get retryable() { return this.status === 0 || this.status >= 500; }
+}
+
 async function api(path, { method = "GET", json, form } = {}) {
   const headers = {};
   if (session.token) headers.Authorization = "Bearer " + session.token;
   let body;
   if (json !== undefined) { headers["Content-Type"] = "application/json"; body = JSON.stringify(json); }
   if (form) body = form;
-  const res = await fetch("/api" + path, { method, headers, body });
+  let res;
+  try { res = await fetch("/api" + path, { method, headers, body }); }
+  catch (_) { throw new ApiError("Não foi possível falar com o servidor. Confira sua conexão e tente novamente.", 0); }
   if (res.status === 401 && session.token && !path.startsWith("/auth")) { session.clear(); renderNav(); }
-  if (!res.ok) throw new Error((await res.text()) || res.statusText);
+  if (!res.ok) throw new ApiError(errorText(res.status, await res.text().catch(() => "")), res.status);
   return res.status === 204 ? null : res.json();
+}
+
+// The API answers errors in plain Portuguese; anything else (framework parse
+// errors, proxy pages) gets a generic message for its status.
+function errorText(status, text) {
+  const readable = text && text.length < 300 && !text.startsWith("<") && !text.startsWith("Error in $");
+  if (readable) return text;
+  if (status === 413) return "Arquivo grande demais (máximo 5 MB).";
+  if (status >= 500) return "O servidor teve um problema. Tente novamente em instantes.";
+  if (status === 404) return "Não encontrado.";
+  return "Dados inválidos. Confira o formulário e tente novamente.";
 }
 
 // --- icons & category styling ----------------------------------------------------
@@ -87,9 +106,10 @@ const avatar = (name, url) => url
   ? `<img class="avatar" src="${esc(url)}" alt="">`
   : `<span class="avatar">${esc((name || "?")[0])}</span>`;
 
-function card({ title, subtitle, year, imageUrl, source }, onClick) {
+function card({ title, subtitle, year, imageUrl, source }, onClick, index = 0) {
   const el = document.createElement("div");
   el.className = "card";
+  el.style.setProperty("--i", index);
   el.innerHTML = `${cover(imageUrl, title, isSquare(source))}
     <div class="card-title">${esc(title)}</div>
     <div class="card-sub">${esc([subtitle, year].filter(Boolean).join(" · "))}</div>`;
@@ -97,7 +117,27 @@ function card({ title, subtitle, year, imageUrl, source }, onClick) {
   return el;
 }
 
-function showError(target, err) { target.textContent = err.message || String(err); }
+// Shows an error; failures worth retrying (server down, provider timeout) get a
+// "tentar novamente" button when the caller passes a retry function.
+function showError(target, err, retry) {
+  target.textContent = err.message || String(err);
+  if (retry && err.retryable) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "btn secondary retry";
+    btn.textContent = "tentar novamente";
+    btn.onclick = () => { target.textContent = ""; retry(); };
+    target.append(" ", btn);
+  }
+}
+
+// Today in the user's time zone, as yyyy-mm-dd (toISOString would give UTC).
+function localToday() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+const MIN_DIARY_DATE = "1900-01-01";
+const MAX_ITEM_YEAR = new Date().getFullYear() + 5;
 
 // --- navigation -----------------------------------------------------------------
 
@@ -138,19 +178,46 @@ const routes = [
   [/^#\/criar-conta$/, () => authPage("register")],
 ];
 
+const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
+let routeSeq = 0;
+
+// Renders the page for the current hash: the old page fades out, the new one
+// slides in once its data has loaded.
 async function route() {
+  const seq = ++routeSeq;
   renderNav();
   const hash = location.hash || "#/";
-  for (const [re, handler] of routes) {
-    const m = hash.match(re);
-    if (m) {
-      app.innerHTML = `<span class="loading">carregando…</span>`;
-      try { await handler(...m.slice(1)); } catch (e) { app.innerHTML = `<div class="panel error">${esc(e.message)}</div>`; }
-      window.scrollTo(0, 0);
-      return;
-    }
+  const match = routes.map(([re, handler]) => [hash.match(re), handler]).find(([m]) => m);
+
+  if (app.childElementCount && !reducedMotion.matches) {
+    app.classList.remove("page-in");
+    app.classList.add("page-out");
+    await new Promise((r) => setTimeout(r, 140));
+    if (seq !== routeSeq) return; // another navigation started meanwhile
   }
-  app.innerHTML = `<div class="panel"><h1>página não encontrada</h1></div>`;
+  // Only show the loading pill when the data is actually slow to arrive.
+  // (Pages that render in steps may already be on screen by then; leave those alone.)
+  const loading = setTimeout(() => {
+    if (seq === routeSeq && !app.childElementCount) app.innerHTML = `<span class="loading">carregando…</span>`;
+  }, 250);
+  app.classList.remove("page-out");
+  app.innerHTML = "";
+
+  try {
+    if (!match) app.innerHTML = `<div class="panel"><h1>página não encontrada</h1><p><a class="btn" href="#/">voltar ao início</a></p></div>`;
+    else await match[1](...match[0].slice(1));
+  } catch (e) {
+    if (seq !== routeSeq) return;
+    app.innerHTML = `<div class="panel"><h1>ops!</h1><p class="error" id="page-error"></p><a class="btn secondary" href="#/">voltar ao início</a></div>`;
+    showError(document.getElementById("page-error"), e, route);
+  } finally {
+    clearTimeout(loading);
+  }
+  if (seq !== routeSeq) return;
+  window.scrollTo(0, 0);
+  app.classList.remove("page-in");
+  void app.offsetWidth; // restart the entrance animation
+  app.classList.add("page-in");
 }
 
 // --- pages ----------------------------------------------------------------------
@@ -159,13 +226,16 @@ async function homePage() {
   const categories = await api("/categories");
   app.innerHTML = `
     <section class="home">
-      <div class="menu">
-        ${categories.map((c, i) => `
-          <a class="menu-card" style="--i:${i}" href="#/c/${encodeURIComponent(c.slug)}">
-            ${badge(c)}
-            <span><span class="menu-title">${esc(c.name)}</span><span class="menu-sub">${esc(catSubtitle(c))}</span></span>
-          </a>`).join("")}
-        <a class="menu-pill" style="--i:${categories.length}" href="#/nova-categoria"><span class="box">${icon("plus")}</span>criar categoria</a>
+      <div>
+        <h1 class="menu-head">o que vai ser hoje?<strong>escolha uma <span>categoria</span></strong></h1>
+        <div class="menu">
+          ${categories.map((c, i) => `
+            <a class="menu-card" style="--i:${i}" href="#/c/${encodeURIComponent(c.slug)}">
+              ${badge(c)}
+              <span><span class="menu-title">${esc(c.name)}</span><span class="menu-sub">${esc(catSubtitle(c))}</span></span>
+            </a>`).join("")}
+          <a class="menu-pill" style="--i:${categories.length}" href="#/nova-categoria"><span class="box">${icon("plus")}</span>criar categoria</a>
+        </div>
       </div>
       <div class="hero">${orbit(categories)}</div>
     </section>`;
@@ -300,26 +370,28 @@ async function categoryPage(slug) {
 
   const results = document.getElementById("results");
   const error = document.getElementById("error");
-  const fail = (e) => { error.hidden = false; showError(error, e); };
+  const fail = (e, retry) => { error.hidden = false; showError(error, e, retry); };
 
   const showItems = (items) => {
     results.innerHTML = items.length ? "" : `<p class="muted">Nada por aqui ainda. Busque algo acima para começar.</p>`;
-    for (const it of items) results.appendChild(card(it, () => (location.hash = `#/item/${it.id}`)));
+    items.forEach((it, i) => results.appendChild(card(it, () => (location.hash = `#/item/${it.id}`), i)));
   };
   showItems(await api(`/categories/${encodeURIComponent(current.slug)}/items`));
 
-  document.getElementById("search").addEventListener("submit", async (ev) => {
-    ev.preventDefault();
-    const q = new FormData(ev.target).get("q").trim();
-    if (!q) return;
+  const search = async (q) => {
     error.hidden = true;
     document.getElementById("list-title").textContent = `resultados para “${q}”`;
-    results.innerHTML = `<p class="muted">Buscando…</p>`;
+    results.innerHTML = `<p class="muted searching">Buscando…</p>`;
     try {
       const hits = await api(`/categories/${encodeURIComponent(current.slug)}/search?q=${encodeURIComponent(q)}`);
       results.innerHTML = hits.length ? "" : `<p class="muted">Nenhum resultado.</p>`;
-      for (const hit of hits) results.appendChild(card(hit.item, () => openHit(current, hit, fail)));
-    } catch (e) { results.innerHTML = ""; fail(e); }
+      hits.forEach((hit, i) => results.appendChild(card(hit.item, () => openHit(current, hit, fail), i)));
+    } catch (e) { results.innerHTML = ""; fail(e, () => search(q)); }
+  };
+  document.getElementById("search").addEventListener("submit", (ev) => {
+    ev.preventDefault();
+    const q = new FormData(ev.target).get("q").trim();
+    if (q) search(q);
   });
 }
 
@@ -329,7 +401,7 @@ async function openHit(category, hit, fail) {
   try {
     const item = await api(`/categories/${encodeURIComponent(category.slug)}/import`, { method: "POST", json: hit.item });
     location.hash = `#/item/${item.id}`;
-  } catch (e) { fail(e); }
+  } catch (e) { fail(e, () => openHit(category, hit, fail)); }
 }
 
 async function itemPage(id) {
@@ -386,17 +458,17 @@ function reviewHtml(r) {
 }
 
 function reviewForm() {
-  const today = new Date().toISOString().slice(0, 10);
-  return `<form class="panel form tilt-r" id="review-form">
+  const today = localToday();
+  return `<form class="panel form tilt-r" id="review-form" novalidate>
     <h2 class="section-title" style="margin:0">registrar no diário</h2>
     <div class="review-top">
       <div class="star-input" id="star-input"></div><button type="button" class="link" id="clear-stars">limpar</button>
       <label class="inline" style="margin-left:auto"><input type="checkbox" name="liked"> <span class="heart">♥</span> curti</label>
     </div>
-    <label>Quando? <input type="date" name="consumedOn" value="${today}"></label>
+    <label>Quando? <input type="date" name="consumedOn" value="${today}" min="${MIN_DIARY_DATE}" max="${today}"></label>
     <label>Review (opcional) <textarea name="body" placeholder="O que você achou?"></textarea></label>
     <div class="error" id="review-error"></div>
-    <div><button class="btn">salvar</button></div>
+    <div><button class="btn" id="review-save">salvar</button></div>
   </form>`;
 }
 
@@ -421,17 +493,28 @@ function bindReviewForm(itemId) {
   starEl.addEventListener("click", (ev) => { const v = valueAt(ev); if (v) { rating = v; paint(rating); } });
   document.getElementById("clear-stars").onclick = () => { rating = null; paint(0); };
 
-  document.getElementById("review-form").addEventListener("submit", async (ev) => {
-    ev.preventDefault();
-    const f = new FormData(ev.target);
+  const form = document.getElementById("review-form");
+  const error = document.getElementById("review-error");
+  const save = async () => {
+    const f = new FormData(form);
     const body = f.get("body").trim();
-    if (!rating && !body && !f.get("liked")) { document.getElementById("review-error").textContent = "Dê uma nota, curta ou escreva algo."; return; }
+    if (!rating && !body && !f.get("liked")) { error.textContent = "Dê uma nota, curta ou escreva algo."; return; }
+    // Typed dates bypass the picker's min/max, so check them here as well.
+    const date = form.consumedOn;
+    if (date.validity.badInput) { error.textContent = "Data inválida."; return; }
+    if (date.value && (date.value < date.min || date.value > date.max)) {
+      error.textContent = `A data precisa estar entre 1900 e hoje (${date.max.split("-").reverse().join("/")}).`;
+      return;
+    }
+    const button = document.getElementById("review-save");
+    button.disabled = true;
     try {
       await api(`/items/${itemId}/reviews`, { method: "POST", json: {
-        rating, body: body || null, liked: !!f.get("liked"), consumedOn: f.get("consumedOn") || null } });
+        rating, body: body || null, liked: !!f.get("liked"), consumedOn: date.value || null } });
       itemPage(itemId);
-    } catch (e) { showError(document.getElementById("review-error"), e); }
-  });
+    } catch (e) { showError(error, e, save); button.disabled = false; }
+  };
+  form.addEventListener("submit", (ev) => { ev.preventDefault(); save(); });
 }
 
 // A one-shot notice shown on the next page that reads it (e.g. after sign-up).
@@ -504,7 +587,7 @@ function newItemPage(slug) {
       <h1>adicionar item</h1>
       <label>Nome <input type="text" name="title" maxlength="200" required></label>
       <label>Subtítulo (autor, artista, marca…) <input type="text" name="subtitle"></label>
-      <label>Ano <input type="number" name="year" min="0" max="3000"></label>
+      <label>Ano <input type="number" name="year" min="1" max="${MAX_ITEM_YEAR}" step="1"></label>
       <label>Descrição <textarea name="description"></textarea></label>
       <label>Foto (JPEG, PNG, GIF ou WebP, até 5 MB) <input type="file" name="image" accept="image/*"></label>
       <div class="error" id="item-error"></div>
@@ -603,7 +686,35 @@ function authPage(mode) {
   });
 }
 
+// Moves the backdrop's layers a little with the pointer and the scroll position;
+// layers with a larger data-depth are "closer" and move more.
+function startParallax() {
+  const layers = [...document.querySelectorAll(".scene .layer")].map((el) => ({ el, depth: Number(el.dataset.depth) }));
+  if (!layers.length || reducedMotion.matches) return;
+  const target = { x: 0, y: 0 }, now = { x: 0, y: 0 };
+  let running = false;
+  const tick = () => {
+    now.x += (target.x - now.x) * 0.08;
+    now.y += (target.y - now.y) * 0.08;
+    const scroll = Math.min(window.scrollY, 600) / 600;
+    for (const { el, depth } of layers) {
+      el.style.transform = `translate(${(-now.x * 26 * depth).toFixed(2)}px, ${(-now.y * 14 * depth - scroll * 40 * depth).toFixed(2)}px)`;
+    }
+    running = Math.abs(target.x - now.x) > 0.001 || Math.abs(target.y - now.y) > 0.001;
+    if (running) requestAnimationFrame(tick);
+  };
+  const kick = () => { if (!running) { running = true; requestAnimationFrame(tick); } };
+  window.addEventListener("pointermove", (ev) => {
+    if (ev.pointerType !== "mouse") return;
+    target.x = ev.clientX / innerWidth - 0.5;
+    target.y = ev.clientY / innerHeight - 0.5;
+    kick();
+  }, { passive: true });
+  window.addEventListener("scroll", kick, { passive: true });
+}
+
 window.addEventListener("hashchange", route);
 route();
+startParallax();
 // Drop a stored session the server no longer accepts (api() clears it on 401).
 if (session.token) api("/me").catch(() => {});

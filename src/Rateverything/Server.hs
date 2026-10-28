@@ -8,10 +8,13 @@ import Control.Monad (forM, unless, when)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Reader (asks, runReaderT)
 import Data.Char (isAlphaNum, isAsciiLower, isDigit, toLower)
+import Data.Foldable (for_)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (isJust)
 import Data.Text (Text)
 import qualified Data.Text as T
+import qualified Data.Text.IO as TIO
+import Data.Time (Day, UTCTime, addDays, fromGregorian, getCurrentTime, toGregorian, utctDay)
 import qualified Database.SQLite.Simple as SQL
 import Network.Wai (Request)
 import Network.Wai.Application.Static (defaultWebAppSettings)
@@ -22,6 +25,7 @@ import Rateverything.Auth
 import Rateverything.Config (Config (..))
 import qualified Rateverything.DB as DB
 import Rateverything.Providers (searchProvider)
+import Rateverything.Providers.Http (ProviderError (..))
 import Rateverything.Types
 import Rateverything.Uploads (maxImageBytes, saveImage)
 import Servant
@@ -171,7 +175,13 @@ searchCategory slug rawTerm = do
       config <- asks (.config)
       manager <- asks (.manager)
       liftIO (searchProvider config manager provider term) >>= \case
-        Left err -> failWith err502 ("Falha ao consultar o provedor: " <> err)
+        Left err -> do
+          liftIO (TIO.putStrLn ("provider " <> provider <> " failed: " <> T.pack (show err)))
+          failWith err503 $ case err of
+            ProviderUnavailable _ ->
+              "A busca de " <> T.toLower category.name <> " não respondeu agora. Tente novamente em alguns segundos."
+            ProviderNotConfigured _ ->
+              "A busca de " <> T.toLower category.name <> " ainda não foi configurada neste servidor."
         Right found -> do
           imported <- runDb $ \conn -> DB.lookupImported conn provider (map (.externalId) found)
           let known = Map.fromList imported
@@ -223,11 +233,19 @@ createItem user slug form = do
     failWith err403 "Só o dono da categoria pode adicionar itens"
   let title = T.strip form.title
   when (T.null title || T.length title > 200) $ failWith err400 "O título deve ter de 1 a 200 caracteres"
+  for_ form.year $ \year -> do
+    -- Leaves room for announced releases.
+    latest <- liftIO (maxItemYear <$> getCurrentTime)
+    when (year < 1 || year > latest) $
+      failWith err400 ("O ano deve ir de 1 a " <> T.pack (show latest))
   uploadDir <- asks (.config.uploadDir)
   imageUrl <- forM form.imagePath $ \path ->
     liftIO (saveImage uploadDir path) >>= either (failWith err400) pure
   runDb $ \conn ->
     DB.insertManualItem conn category.id user.id title form.subtitle form.year imageUrl form.description
+
+maxItemYear :: UTCTime -> Int
+maxItemYear now = let (y, _, _) = toGregorian (utctDay now) in fromIntegral y + 5
 
 -- Reviews --------------------------------------------------------------------
 
@@ -236,9 +254,17 @@ addReview user iid new = do
   case new.rating of
     Just r | r < 1 || r > 10 -> failWith err400 "A nota deve ir de 1 a 10 (meias estrelas)"
     _ -> pure ()
+  for_ new.consumedOn $ \day -> do
+    -- One day of slack for users in time zones ahead of UTC.
+    tomorrow <- liftIO (addDays 1 . utctDay <$> getCurrentTime)
+    when (day < earliestDiaryDate || day > tomorrow) $
+      failWith err400 "A data precisa estar entre 1900 e hoje"
   _ <- runDb (`DB.findItem` iid) >>= maybe (failWith err404 "Item não encontrado") pure
   let body = new.body >>= \b -> if T.null (T.strip b) then Nothing else Just (T.strip b)
   runDb $ \conn -> DB.insertReview conn user.id iid NewReview {rating = new.rating, body = body, liked = new.liked, consumedOn = new.consumedOn}
+
+earliestDiaryDate :: Day
+earliestDiaryDate = fromGregorian 1900 1 1
 
 removeReview :: User -> ReviewId -> AppM NoContent
 removeReview user rid = do
