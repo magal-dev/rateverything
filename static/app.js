@@ -296,7 +296,7 @@ function orbit(categories) {
       ${ORBITERS.map((o) => `<a class="orbiter" href="${hrefFor(o.provider)}" title="${esc(o.label)}">
         <svg viewBox="0 0 120 120" aria-hidden="true">${o.svg}</svg><span class="orbiter-label">${esc(o.label)}</span></a>`).join("")}
     </div>
-    <span class="hero-caption">dê nota em tudo.</span>`;
+    <span class="hero-caption">do blockbuster ao pastel da feira.</span>`;
 }
 
 // Moves the orbiters along a tilted ellipse; the ones "behind" shrink and dim.
