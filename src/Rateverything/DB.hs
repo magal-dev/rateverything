@@ -112,6 +112,15 @@ migrations =
       ]
     )
   , (2, ["ALTER TABLE users ADD COLUMN avatar_url TEXT"])
+  , -- Users don't need to know which API backs a category; leaves edited descriptions alone.
+    ( 3
+    , [ "UPDATE categories SET description = 'do cinema ao streaming' WHERE slug = 'filmes' AND description = 'Filmes via TMDB'"
+      , "UPDATE categories SET description = 'maratonas e temporadas' WHERE slug = 'series' AND description = 'Séries via TMDB'"
+      , "UPDATE categories SET description = 'do lado A ao lado B' WHERE slug = 'albuns' AND description = 'Álbuns via MusicBrainz'"
+      , "UPDATE categories SET description = 'do arcade ao mundo aberto' WHERE slug = 'jogos' AND description = 'Jogos via RAWG'"
+      , "UPDATE categories SET description = 'da cabeceira à estante' WHERE slug = 'livros' AND description = 'Livros via Open Library'"
+      ]
+    )
   ]
 
 -- Users and sessions ---------------------------------------------------------

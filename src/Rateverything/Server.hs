@@ -31,7 +31,7 @@ import Rateverything.Uploads (maxImageBytes, saveImage)
 import Servant
 import Servant.Multipart (MultipartOptions (..), Tmp, defaultMultipartOptions)
 import Servant.Server.Experimental.Auth (AuthHandler)
-import WaiAppStatic.Types (MaxAge (NoMaxAge), StaticSettings (..), unsafeToPiece)
+import WaiAppStatic.Types (MaxAge (NoCache), StaticSettings (..), unsafeToPiece)
 
 application :: Env -> Application
 application env =
@@ -41,9 +41,10 @@ application env =
       :<|> serveDirectoryWith staticSettings
   where
     -- Frontend files keep stable names, so browsers must revalidate (via ETag)
-    -- instead of caching them for a year like 'defaultWebAppSettings' does.
+    -- on every load. Without an explicit no-cache they would fall back to
+    -- heuristic caching and keep serving an old app.js.
     staticSettings =
-      (defaultWebAppSettings env.config.staticDir) {ssIndices = [unsafeToPiece "index.html"], ssMaxAge = NoMaxAge}
+      (defaultWebAppSettings env.config.staticDir) {ssIndices = [unsafeToPiece "index.html"], ssMaxAge = NoCache}
     context = authHandler env.config.dbPath :. multipartOptions :. EmptyContext
     multipartOptions :: MultipartOptions Tmp
     multipartOptions =
