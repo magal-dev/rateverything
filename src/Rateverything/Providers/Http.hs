@@ -1,6 +1,6 @@
 -- | Small helpers shared by the external catalogue providers.
 module Rateverything.Providers.Http
-  ( ProviderError
+  ( ProviderError (..)
   , getJson
   , yearFromDate
   , nonBlank
@@ -17,7 +17,14 @@ import Network.HTTP.Client
 import Network.HTTP.Types (RequestHeaders, statusCode)
 import Text.Read (readMaybe)
 
-type ProviderError = Text
+-- | Why a provider search failed. The detail is for the server log only: it
+-- may be technical, and is never shown to users.
+data ProviderError
+  = -- | The provider could not be reached or answered with an error.
+    ProviderUnavailable Text
+  | -- | The server lacks the API key (named here) the provider needs.
+    ProviderNotConfigured Text
+  deriving stock (Show)
 
 -- | GETs a URL with query parameters and runs a JSON parser over the response body.
 getJson
@@ -32,7 +39,7 @@ getJson manager url params headers parser = do
   let request =
         setQueryString [(TE.encodeUtf8 k, Just (TE.encodeUtf8 v)) | (k, v) <- params] $
           base {requestHeaders = headers <> requestHeaders base}
-  first <- try (httpLbs request manager)
+  first <- try @HttpException (httpLbs request manager)
   -- Rate-limited providers (MusicBrainz allows ~1 req/s) answer 429/503: retry once.
   result <- case first of
     Right response | statusCode (responseStatus response) `elem` [429, 503] -> do
@@ -40,12 +47,14 @@ getJson manager url params headers parser = do
       try (httpLbs request manager)
     _ -> pure first
   pure $ case result of
-    Left (e :: HttpException) -> Left ("HTTP error: " <> T.pack (show e))
+    -- Only the exception's content: the request itself carries the API key.
+    Left (HttpExceptionRequest _ content) -> Left (ProviderUnavailable ("HTTP error: " <> T.pack (show content)))
+    Left (InvalidUrlException _ reason) -> Left (ProviderUnavailable ("Invalid URL: " <> T.pack reason))
     Right response
       | statusCode (responseStatus response) /= 200 ->
-          Left ("Provider answered HTTP " <> T.pack (show (statusCode (responseStatus response))))
+          Left (ProviderUnavailable ("Provider answered HTTP " <> T.pack (show (statusCode (responseStatus response)))))
       | otherwise -> case eitherDecode (responseBody response) >>= parseEither parser of
-          Left err -> Left ("Unexpected provider response: " <> T.pack err)
+          Left err -> Left (ProviderUnavailable ("Unexpected provider response: " <> T.pack err))
           Right a -> Right a
 
 -- | Extracts the year from dates like @2019@, @2019-05@ or @2019-05-30@.
