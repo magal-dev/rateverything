@@ -54,9 +54,12 @@ input, textarea, button { font: inherit; }
   .scene .blimp { animation: cruise 46s ease-in-out infinite alternate, bob 5s ease-in-out infinite alternate; }
   .scene .wheel { animation: spin 50s linear infinite; }
   .scene .blink { animation: blink 1.6s steps(1) infinite; }
+  /* Same lane, same speed: the delays keep the cars evenly spaced so none overtakes. */
   .scene .car { animation: drive 24s linear infinite; }
-  .scene .car.c2 { animation-duration: 19s; animation-delay: -11s; }
-  .scene .car.c3 { animation-duration: 27s; animation-delay: -20s; }
+  .scene .car.c2 { animation-delay: -8s; }
+  .scene .car.c3 { animation-delay: -16s; }
+  .scene .bulbs circle { animation: blink 0.9s steps(1) infinite; }
+  .scene .bulbs circle:nth-child(odd) { animation-delay: -0.45s; }
   .scene .bus { animation: drive-back 34s linear infinite; animation-delay: -9s; }
 }
 /* Pivots for the moving scene pieces (their own boxes, not the whole SVG). */
