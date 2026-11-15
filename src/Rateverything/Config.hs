@@ -5,6 +5,8 @@ module Rateverything.Config
   ) where
 
 import Control.Monad (forM_, when)
+import qualified Data.ByteString.Char8 as BS8
+import Data.ByteString (ByteString)
 import Data.Char (isSpace)
 import Data.Maybe (fromMaybe, isNothing)
 import Data.Text (Text)
@@ -15,7 +17,7 @@ import Text.Read (readMaybe)
 
 data Config = Config
   { port :: Int
-  , dbPath :: FilePath
+  , databaseUrl :: ByteString
   , uploadDir :: FilePath
   , staticDir :: FilePath
   , tmdbApiKey :: Maybe Text
@@ -28,7 +30,7 @@ loadConfig :: IO Config
 loadConfig = do
   loadDotEnv ".env"
   port <- fromMaybe 8080 . (>>= readMaybe) <$> lookupEnv "PORT"
-  dbPath <- envOr "DB_PATH" "rateverything.db"
+  databaseUrl <- BS8.pack <$> envOr "DATABASE_URL" "postgresql://rateverything:rateverything@localhost:5432/rateverything"
   uploadDir <- envOr "UPLOAD_DIR" "uploads"
   staticDir <- envOr "STATIC_DIR" "static"
   tmdbApiKey <- optionalEnv "TMDB_API_KEY"

@@ -3,7 +3,7 @@ module Rateverything.Server
   ( application
   ) where
 
-import Control.Exception (try)
+import Control.Exception (tryJust)
 import Control.Monad (forM, unless, when)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Reader (asks, runReaderT)
@@ -15,7 +15,7 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 import Data.Time (Day, UTCTime, addDays, fromGregorian, getCurrentTime, toGregorian, utctDay)
-import qualified Database.SQLite.Simple as SQL
+import qualified Database.PostgreSQL.Simple as SQL
 import Network.Wai (Request)
 import Network.Wai.Application.Static (defaultWebAppSettings)
 import Network.Wai.Parse (defaultParseRequestBodyOptions, setMaxRequestFileSize, setMaxRequestNumFiles)
@@ -45,7 +45,7 @@ application env =
     -- heuristic caching and keep serving an old app.js.
     staticSettings =
       (defaultWebAppSettings env.config.staticDir) {ssIndices = [unsafeToPiece "index.html"], ssMaxAge = NoCache}
-    context = authHandler env.config.dbPath :. multipartOptions :. EmptyContext
+    context = authHandler env.pool :. multipartOptions :. EmptyContext
     multipartOptions :: MultipartOptions Tmp
     multipartOptions =
       (defaultMultipartOptions (Proxy @Tmp))
@@ -87,11 +87,13 @@ register creds = do
   when (T.length creds.password < 8) $
     failWith err400 "A senha precisa ter pelo menos 8 caracteres"
   hashed <- liftIO (hashPassword creds.password)
-  result <- runDb $ \conn -> try (DB.insertUser conn name hashed)
+  result <- runDb $ \conn -> tryJust uniqueViolation (DB.insertUser conn name hashed)
   case result of
-    Left (_ :: SQL.SQLError) -> failWith err409 "Esse nome de usuário já existe"
+    Left () -> failWith err409 "Esse nome de usuário já existe"
     Right user -> startSession user
   where
+    -- 23505 = unique_violation (the lower(username) index); other errors propagate.
+    uniqueViolation e = if SQL.sqlState e == "23505" then Just () else Nothing
     validUsername n =
       T.length n >= 3 && T.length n <= 30 && T.all (\c -> isAsciiLower c || isDigit c || c == '_') n
 

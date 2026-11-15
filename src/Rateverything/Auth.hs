@@ -16,6 +16,8 @@ import qualified Data.ByteString.Base16 as Base16
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
+import Data.Pool (Pool)
+import Database.PostgreSQL.Simple (Connection)
 import Network.Wai (Request, requestHeaders)
 import Rateverything.DB (findUserByTokenHash, withDb)
 import Rateverything.Types (User)
@@ -40,10 +42,10 @@ hashToken :: Text -> Text
 hashToken = T.pack . show . hashWith SHA256 . TE.encodeUtf8
 
 -- | Resolves @Authorization: Bearer <token>@ to the logged-in user.
-authHandler :: FilePath -> AuthHandler Request User
-authHandler dbPath = mkAuthHandler $ \req ->
+authHandler :: Pool Connection -> AuthHandler Request User
+authHandler pool = mkAuthHandler $ \req ->
   case lookup "Authorization" (requestHeaders req) >>= BS.stripPrefix "Bearer " of
     Nothing -> throwError err401 {errBody = "Missing bearer token"}
     Just token -> do
-      user <- liftIO $ withDb dbPath $ \conn -> findUserByTokenHash conn (hashToken (TE.decodeLatin1 token))
+      user <- liftIO $ withDb pool $ \conn -> findUserByTokenHash conn (hashToken (TE.decodeLatin1 token))
       maybe (throwError err401 {errBody = "Invalid or expired session"}) pure user

@@ -1,0 +1,28 @@
+# App + PostgreSQL para o Codespaces. O app compartilha a rede do banco, então
+# o Postgres responde em localhost:5432 de dentro do container de desenvolvimento.
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - ../..:/workspaces:cached
+    command: sleep infinity
+    network_mode: service:db
+    environment:
+      DATABASE_URL: postgresql://rateverything:rateverything@localhost:5432/rateverything
+    depends_on:
+      - db
+
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: rateverything
+      POSTGRES_PASSWORD: rateverything
+      POSTGRES_DB: rateverything
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+volumes:
+  postgres-data:
