@@ -4,13 +4,13 @@ Um "Letterboxd para qualquer coisa": registre, dê nota (meias estrelas) e escre
 
 Backend em **Haskell** (Servant + Warp + PostgreSQL), frontend estático em JS puro servido pelo próprio servidor.
 
-> A versão com SQLite (sem servidor de banco) continua na branch `master`/`codespaces`.
+> A versão anterior, com SQLite (sem servidor de banco), está preservada na branch `sqlite`.
 
 ## Rodando no GitHub Codespaces (recomendado)
 
 O `.devcontainer/` sobe dois containers via docker compose: o de desenvolvimento (GHC 9.10.3 + cabal 3.16.1.0, `psql`, `sqlite3`) e um **PostgreSQL 16**, acessível em `localhost:5432`. O `DATABASE_URL` já vem definido.
 
-1. No GitHub: **Code → Codespaces → ⋯ → New with options**, escolha a branch `postgres`. A tela pede `TMDB_API_KEY`, `RAWG_API_KEY` e `MUSICBRAINZ_USER_AGENT` — eles viram secrets do Codespaces e chegam ao app como variáveis de ambiente (não precisa de `.env`).
+1. No GitHub: **Code → Codespaces → Create codespace on master**. A tela pede `TMDB_API_KEY`, `RAWG_API_KEY` e `MUSICBRAINZ_USER_AGENT` — eles viram secrets do Codespaces e chegam ao app como variáveis de ambiente (não precisa de `.env`).
 2. Na criação, o `postCreateCommand` roda `cabal update && cabal build` (a primeira vez demora ~10–15 min).
 3. No terminal: `cabal run exe:rateverything`. As tabelas são criadas no primeiro start. A porta 8080 abre no navegador (`https://<codespace>-8080.app.github.dev`, privada por padrão).
 4. Opcional: `python3 scripts/teste-fumaca.py` (com o servidor rodando) faz 23 verificações na API e no banco.
