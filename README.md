@@ -15,6 +15,23 @@ cabal run rateverything
 
 Abra http://localhost:8080.
 
+### No GitHub Codespaces
+
+O repositório tem um `.devcontainer/` com GHC 9.10.3 + cabal 3.16.1.0 (as mesmas versões do desenvolvimento local) e `sqlite3`.
+
+1. No GitHub: **Code → Codespaces → Create codespace on master**. A tela pede `TMDB_API_KEY`, `RAWG_API_KEY` e `MUSICBRAINZ_USER_AGENT` — eles viram secrets do Codespaces e chegam ao app como variáveis de ambiente (não precisa de `.env`).
+2. Na criação, o `postCreateCommand` roda `cabal update && cabal build` (a primeira vez demora ~10–15 min).
+3. No terminal: `cabal run rateverything`. A porta 8080 é encaminhada e abre no navegador (`https://<codespace>-8080.app.github.dev`, privada por padrão).
+
+O banco SQLite (`rateverything.db`) é criado e migrado sozinho no primeiro start. Para levar os dados locais (usuários, reviews, fotos), copie o banco e as imagens — eles não vão para o git:
+
+```bash
+gh codespace cp -e rateverything.db remote:/workspaces/rateverything/
+gh codespace cp -e -r uploads remote:/workspaces/rateverything/
+```
+
+(ou arraste os arquivos para o Explorer do VS Code no Codespace, com o servidor parado). Os dados sobrevivem a parar/retomar o Codespace, mas somem se ele for **excluído** — o GitHub apaga Codespaces inativos após 30 dias, então baixe o `.db` de vez em quando como backup.
+
 | Categoria | Provedor | Chave |
 |-----------|----------|-------|
 | Filmes, Séries | [TMDB](https://developer.themoviedb.org) | `TMDB_API_KEY` (v3, grátis) |

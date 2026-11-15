@@ -1,0 +1,39 @@
+{
+  "name": "Rateverything (Haskell + SQLite)",
+  "build": { "dockerfile": "Dockerfile" },
+  "remoteUser": "vscode",
+
+  // Compila tudo na criação do Codespace (a primeira vez demora ~10–15 min).
+  "postCreateCommand": "cabal update && cabal build rateverything",
+
+  "forwardPorts": [8080],
+  "portsAttributes": {
+    "8080": { "label": "Rateverything", "onAutoForward": "openBrowser" }
+  },
+
+  // O Codespaces pede estes valores ao criar o ambiente (ficam como secrets do usuário).
+  // Variáveis de ambiente têm prioridade sobre o .env, então não é preciso criar um.
+  "secrets": {
+    "TMDB_API_KEY": {
+      "description": "Chave v3 do TMDB (busca de filmes e séries)",
+      "documentationUrl": "https://www.themoviedb.org/settings/api"
+    },
+    "RAWG_API_KEY": {
+      "description": "Chave da RAWG (busca de jogos)",
+      "documentationUrl": "https://rawg.io/apidocs"
+    },
+    "MUSICBRAINZ_USER_AGENT": {
+      "description": "User-Agent com contato exigido pelo MusicBrainz, ex.: Rateverything/0.1 ( voce@exemplo.com )",
+      "documentationUrl": "https://musicbrainz.org/doc/MusicBrainz_API/Rate_Limiting"
+    }
+  },
+
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "justusadam.language-haskell",
+        "qwtel.sqlite-viewer"
+      ]
+    }
+  }
+}
