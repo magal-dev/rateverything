@@ -1,0 +1,90 @@
+name: CI
+
+on:
+  push:
+    branches: [master, postgres]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  # Build + PostgreSQL de serviço + teste de fumaça da API. Roda a cada push.
+  api:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: rateverything
+          POSTGRES_PASSWORD: rateverything
+          POSTGRES_DB: rateverything
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U rateverything"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgresql://rateverything:rateverything@localhost:5432/rateverything
+      PORT: "8080"
+    steps:
+      - uses: actions/checkout@v4
+
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libpq-dev
+
+      - uses: haskell-actions/setup@v2
+        id: setup
+        with:
+          ghc-version: "9.10.3"
+          cabal-version: "3.16.1.0"
+
+      - run: cabal update && cabal build exe:rateverything --dry-run
+
+      - uses: actions/cache@v4
+        with:
+          path: ${{ steps.setup.outputs.cabal-store }}
+          key: cabal-${{ runner.os }}-9.10.3-${{ hashFiles('rateverything.cabal', 'dist-newstyle/cache/plan.json') }}
+          restore-keys: cabal-${{ runner.os }}-9.10.3-
+
+      - run: cabal build exe:rateverything
+
+      - name: Sobe o servidor e roda o teste de fumaça
+        run: |
+          "$(cabal list-bin exe:rateverything)" > server.log 2>&1 &
+          for _ in $(seq 30); do curl -sf localhost:8080/api/categories > /dev/null && break; sleep 1; done
+          python3 scripts/teste-fumaca.py http://localhost:8080
+
+      - if: always()
+        run: cat server.log || true
+
+  # Monta o mesmo devcontainer (docker compose: app + Postgres) que o Codespaces
+  # usa e roda o app lá dentro. Mais lento; roda em PRs e sob demanda.
+  devcontainer:
+    if: github.event_name != 'push'
+    runs-on: ubuntu-latest
+    env:
+      COMPOSE: docker compose -f .devcontainer/docker-compose.yml
+      IN_APP: docker compose -f .devcontainer/docker-compose.yml exec -T -u vscode -w /workspaces/rateverything app bash -c
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: rateverything
+
+      # O usuário vscode (uid 1000) do container precisa escrever no checkout.
+      - run: chmod -R a+rwX rateverything
+
+      - name: Monta a imagem e sobe app + Postgres
+        working-directory: rateverything
+        run: $COMPOSE up -d --build
+
+      - name: postCreateCommand (cabal update && cabal build)
+        working-directory: rateverything
+        run: $IN_APP "cabal update && cabal build exe:rateverything"
+
+      - name: Sobe o servidor e roda o teste de fumaça
+        working-directory: rateverything
+        run: |
+          $COMPOSE exec -d -u vscode -w /workspaces/rateverything app bash -c '"$(cabal list-bin exe:rateverything)" > server.log 2>&1'
+          $IN_APP 'for _ in $(seq 30); do curl -sf localhost:8080/api/categories > /dev/null && break; sleep 1; done
+                   python3 scripts/teste-fumaca.py http://localhost:8080'
+
+      - if: always()
+        working-directory: rateverything
+        run: cat server.log || true; $COMPOSE logs db | tail -20

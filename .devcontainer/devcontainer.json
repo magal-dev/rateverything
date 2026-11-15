@@ -1,14 +1,17 @@
 {
-  "name": "Rateverything (Haskell + SQLite)",
-  "build": { "dockerfile": "Dockerfile" },
+  "name": "Rateverything (Haskell + PostgreSQL)",
+  "dockerComposeFile": "docker-compose.yml",
+  "service": "app",
+  "workspaceFolder": "/workspaces/${localWorkspaceFolderBasename}",
   "remoteUser": "vscode",
 
   // Compila tudo na criação do Codespace (a primeira vez demora ~10–15 min).
   "postCreateCommand": "cabal update && cabal build rateverything",
 
-  "forwardPorts": [8080],
+  "forwardPorts": [8080, 5432],
   "portsAttributes": {
-    "8080": { "label": "Rateverything", "onAutoForward": "openBrowser" }
+    "8080": { "label": "Rateverything", "onAutoForward": "openBrowser" },
+    "5432": { "label": "PostgreSQL", "onAutoForward": "silent" }
   },
 
   // O Codespaces pede estes valores ao criar o ambiente (ficam como secrets do usuário).
@@ -32,7 +35,7 @@
     "vscode": {
       "extensions": [
         "justusadam.language-haskell",
-        "qwtel.sqlite-viewer"
+        "ckolkman.vscode-postgres"
       ]
     }
   }

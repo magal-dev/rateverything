@@ -24,7 +24,7 @@ module Rateverything.Types
 import Data.Aeson (FromJSON, ToJSON)
 import Data.Text (Text)
 import Data.Time (Day, UTCTime)
-import Database.SQLite.Simple (FromRow (..), field)
+import Database.PostgreSQL.Simple.FromRow (FromRow (..), field)
 import GHC.Generics (Generic)
 
 type UserId = Int

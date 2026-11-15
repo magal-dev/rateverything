@@ -2,13 +2,13 @@
 # Mesmas versões usadas localmente: GHC 9.10.3 + cabal 3.16.1.0 (via ghcup).
 FROM mcr.microsoft.com/devcontainers/base:bookworm
 
-# Dependências de sistema do GHC + sqlite3 (CLI, para inspecionar o banco).
-# O driver do app (sqlite-simple/direct-sqlite) já embute o SQLite em C.
+# Dependências de sistema do GHC, libpq-dev (driver do PostgreSQL), psql e
+# sqlite3 (só para importar dados da versão SQLite).
 RUN apt-get update \
     && export DEBIAN_FRONTEND=noninteractive \
     && apt-get install -y --no-install-recommends \
         build-essential curl libffi-dev libgmp-dev libgmp10 libncurses-dev \
-        libtinfo-dev pkg-config zlib1g-dev sqlite3 \
+        libtinfo-dev pkg-config zlib1g-dev libpq-dev postgresql-client sqlite3 python3 \
     && rm -rf /var/lib/apt/lists/*
 
 USER vscode
