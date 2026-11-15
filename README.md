@@ -69,23 +69,36 @@ Sem chave, a busca daquela categoria responde 503 com a explicação; o resto fu
 ## Estrutura
 
 ```
-app/Main.hs                         bootstrap: config, migrações, Warp
+app/Main.hs                         bootstrap: config, pool, migrações, Warp
 src/Rateverything/
-  Api.hs                            tipo da API (Servant)
-  Server.hs                         handlers e regras
-  DB.hs                             PostgreSQL: pool, migrações e queries
+  Api.hs                            rotas da API como tipo (Servant)
+  Server.hs                         liga cada rota ao seu handler
+  App.hs                            AppM (ReaderT Env Handler), runDb, failWith
   Types.hs                          tipos de domínio + JSON
+  Config.hs                         variáveis de ambiente / .env
   Auth.hs                           bcrypt, tokens, AuthHandler
   Uploads.hs                        armazenamento de imagens
-  Config.hs                         variáveis de ambiente / .env
+  Handlers/                         regras de negócio, um módulo por recurso
+    Auth.hs                         cadastro, login, logout, avatar
+    Categories.hs                   listar/criar categorias, slugify
+    Items.hs                        busca, detalhe, importação, item manual
+    Reviews.hs                      reviews e diário
+  DB.hs                             reexporta tudo de DB/
+  DB/                               PostgreSQL
+    Connection.hs                   pool de conexões
+    Migrations.hs                   schema
+    Users.hs, Categories.hs,        queries, um módulo por tabela
+    Items.hs, Reviews.hs
   Providers.hs                      roteia provider -> implementação
-  Providers/{TMDB,RAWG,MusicBrainz,OpenLibrary}.hs
+  Providers/                        APIs externas
+    Http.hs                         cliente HTTP comum, ProviderError
+    TMDB.hs, RAWG.hs, MusicBrainz.hs, OpenLibrary.hs
 static/                             SPA (index.html, app.js, style.css)
 scripts/importar-sqlite.sh          copia um rateverything.db para o Postgres
 scripts/teste-fumaca.py             teste de ponta a ponta da API (também roda no CI)
 ```
 
-Para adicionar um provedor novo: crie `Providers/X.hs` retornando `[ExternalItem]`, registre a chave em `Providers.hs` e insira a categoria numa nova migração em `DB.hs`.
+Para adicionar um provedor novo: crie `Providers/X.hs` retornando `[ExternalItem]`, registre a chave em `Providers.hs` e insira a categoria numa nova migração em `DB/Migrations.hs`.
 
 ## API
 
