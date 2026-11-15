@@ -59,14 +59,32 @@ jobs:
   devcontainer:
     if: github.event_name != 'push'
     runs-on: ubuntu-latest
+    env:
+      COMPOSE: docker compose -f .devcontainer/docker-compose.yml
+      IN_APP: docker compose -f .devcontainer/docker-compose.yml exec -T -u vscode -w /workspaces/rateverything app bash -c
     steps:
       - uses: actions/checkout@v4
-
-      - uses: devcontainers/ci@v0.3
         with:
-          push: never
-          runCmd: |
-            set -e
-            "$(cabal list-bin exe:rateverything)" > server.log 2>&1 &
-            for _ in $(seq 30); do curl -sf localhost:8080/api/categories > /dev/null && break; sleep 1; done
-            python3 scripts/teste-fumaca.py http://localhost:8080
+          path: rateverything
+
+      # O usuário vscode (uid 1000) do container precisa escrever no checkout.
+      - run: chmod -R a+rwX rateverything
+
+      - name: Monta a imagem e sobe app + Postgres
+        working-directory: rateverything
+        run: $COMPOSE up -d --build
+
+      - name: postCreateCommand (cabal update && cabal build)
+        working-directory: rateverything
+        run: $IN_APP "cabal update && cabal build exe:rateverything"
+
+      - name: Sobe o servidor e roda o teste de fumaça
+        working-directory: rateverything
+        run: |
+          $COMPOSE exec -d -u vscode -w /workspaces/rateverything app bash -c '"$(cabal list-bin exe:rateverything)" > server.log 2>&1'
+          $IN_APP 'for _ in $(seq 30); do curl -sf localhost:8080/api/categories > /dev/null && break; sleep 1; done
+                   python3 scripts/teste-fumaca.py http://localhost:8080'
+
+      - if: always()
+        working-directory: rateverything
+        run: cat server.log || true; $COMPOSE logs db | tail -20
