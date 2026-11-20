@@ -1,14 +1,13 @@
--- | Runtime configuration, read from environment variables (and an optional @.env@ file).
 module Rateverything.Config
   ( Config (..)
   , loadConfig
   ) where
 
 import Control.Monad (forM_, when)
-import qualified Data.ByteString.Char8 as BS8
 import Data.ByteString (ByteString)
+import qualified Data.ByteString.Char8 as BS8
 import Data.Char (isSpace)
-import Data.Maybe (fromMaybe, isNothing)
+import Data.Maybe (fromMaybe, isNothing, mapMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
 import System.Directory (doesFileExist)
@@ -28,35 +27,55 @@ data Config = Config
 
 loadConfig :: IO Config
 loadConfig = do
-  loadDotEnv ".env"
-  port <- fromMaybe 8080 . (>>= readMaybe) <$> lookupEnv "PORT"
-  databaseUrl <- BS8.pack <$> envOr "DATABASE_URL" "postgresql://rateverything:rateverything@localhost:5432/rateverything"
-  uploadDir <- envOr "UPLOAD_DIR" "uploads"
-  staticDir <- envOr "STATIC_DIR" "static"
-  tmdbApiKey <- optionalEnv "TMDB_API_KEY"
-  tmdbLanguage <- T.pack <$> envOr "TMDB_LANGUAGE" "pt-BR"
-  rawgApiKey <- optionalEnv "RAWG_API_KEY"
-  musicBrainzUserAgent <- T.pack <$> envOr "MUSICBRAINZ_USER_AGENT" "Rateverything/0.1 ( https://github.com/ )"
+  loadDotEnvFile ".env"
+  port <- fromMaybe defaultPort . (>>= readMaybe) <$> lookupEnv "PORT"
+  databaseUrl <- BS8.pack <$> envOrDefault "DATABASE_URL" defaultDatabaseUrl
+  uploadDir <- envOrDefault "UPLOAD_DIR" "uploads"
+  staticDir <- envOrDefault "STATIC_DIR" "static"
+  tmdbApiKey <- nonBlankEnv "TMDB_API_KEY"
+  tmdbLanguage <- T.pack <$> envOrDefault "TMDB_LANGUAGE" "pt-BR"
+  rawgApiKey <- nonBlankEnv "RAWG_API_KEY"
+  musicBrainzUserAgent <- T.pack <$> envOrDefault "MUSICBRAINZ_USER_AGENT" defaultMusicBrainzUserAgent
   pure Config {..}
-  where
-    envOr name def = fromMaybe def <$> lookupEnv name
-    optionalEnv name = do
-      v <- lookupEnv name
-      pure $ case T.strip . T.pack <$> v of
-        Just t | not (T.null t) -> Just t
-        _ -> Nothing
 
--- | Minimal @KEY=VALUE@ loader. Variables already set in the environment win.
-loadDotEnv :: FilePath -> IO ()
-loadDotEnv path = do
-  exists <- doesFileExist path
-  when exists $ do
+defaultPort :: Int
+defaultPort = 8080
+
+defaultDatabaseUrl :: String
+defaultDatabaseUrl = "postgresql://rateverything:rateverything@localhost:5432/rateverything"
+
+defaultMusicBrainzUserAgent :: String
+defaultMusicBrainzUserAgent = "Rateverything/0.1 ( https://github.com/ )"
+
+envOrDefault :: String -> String -> IO String
+envOrDefault variableName defaultValue = fromMaybe defaultValue <$> lookupEnv variableName
+
+nonBlankEnv :: String -> IO (Maybe Text)
+nonBlankEnv variableName = do
+  value <- lookupEnv variableName
+  pure $ case T.strip . T.pack <$> value of
+    Just stripped | not (T.null stripped) -> Just stripped
+    _ -> Nothing
+
+loadDotEnvFile :: FilePath -> IO ()
+loadDotEnvFile path = do
+  fileExists <- doesFileExist path
+  when fileExists $ do
     contents <- readFile path
-    forM_ (lines contents) $ \line ->
-      case break (== '=') (trim line) of
-        (key@(c : _), '=' : value) | c /= '#' -> do
-          current <- lookupEnv key
-          when (isNothing current && not (null (trim value))) $ setEnv key (trim value)
-        _ -> pure ()
-  where
-    trim = dropWhile isSpace . reverse . dropWhile isSpace . reverse
+    forM_ (mapMaybe parseDotEnvLine (lines contents)) $ \(variableName, value) ->
+      setEnvUnlessAlreadySet variableName value
+
+parseDotEnvLine :: String -> Maybe (String, String)
+parseDotEnvLine line =
+  case break (== '=') (trimSpaces line) of
+    (variableName@(firstChar : _), '=' : value) | firstChar /= '#' -> Just (variableName, trimSpaces value)
+    _ -> Nothing
+
+setEnvUnlessAlreadySet :: String -> String -> IO ()
+setEnvUnlessAlreadySet variableName value = do
+  currentValue <- lookupEnv variableName
+  when (isNothing currentValue && not (null value)) $
+    setEnv variableName value
+
+trimSpaces :: String -> String
+trimSpaces = dropWhile isSpace . reverse . dropWhile isSpace . reverse

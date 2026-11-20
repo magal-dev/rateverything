@@ -1,6 +1,3 @@
--- | Albums (release groups) from MusicBrainz, with covers from the Cover Art Archive.
--- No API key is needed, but MusicBrainz requires a descriptive User-Agent and
--- allows about one request per second.
 module Rateverything.Providers.MusicBrainz
   ( searchAlbums
   ) where
@@ -15,36 +12,38 @@ import Network.HTTP.Client (Manager)
 import Rateverything.Providers.Http
 import Rateverything.Types (ExternalItem (..))
 
--- | Arguments: HTTP manager, User-Agent, search term.
 searchAlbums :: Manager -> Text -> Text -> IO (Either ProviderError [ExternalItem])
-searchAlbums manager userAgent term =
+searchAlbums manager userAgent searchTerm =
   getJson
     manager
     "https://musicbrainz.org/ws/2/release-group"
-    [("query", term), ("fmt", "json"), ("limit", "20")]
+    [("query", searchTerm), ("fmt", "json"), ("limit", "20")]
     [("User-Agent", TE.encodeUtf8 userAgent), ("Accept", "application/json")]
-    (withObject "MusicBrainz search" $ \o -> o .: "release-groups" >>= mapM parseReleaseGroup)
+    (withObject "MusicBrainz search" $ \response -> response .: "release-groups" >>= mapM parseReleaseGroup)
 
 parseReleaseGroup :: Value -> Parser ExternalItem
-parseReleaseGroup = withObject "release group" $ \o -> do
-  mbid <- o .: "id"
-  title <- o .: "title"
-  firstRelease <- o .:? "first-release-date"
-  primaryType <- o .:? "primary-type"
-  credits <- o .:? "artist-credit" .!= [] >>= mapM parseCredit
+parseReleaseGroup = withObject "release group" $ \releaseGroup -> do
+  musicBrainzId <- releaseGroup .: "id"
+  title <- releaseGroup .: "title"
+  firstReleaseDate <- releaseGroup .:? "first-release-date"
+  primaryType <- releaseGroup .:? "primary-type"
+  artistCreditParts <- releaseGroup .:? "artist-credit" .!= [] >>= mapM parseArtistCreditPart
   pure
     ExternalItem
       { source = "musicbrainz"
-      , externalId = mbid
+      , externalId = musicBrainzId
       , title = title
-      , subtitle = nonBlank (T.concat credits)
-      , year = firstRelease >>= yearFromDate
-      , imageUrl = Just ("https://coverartarchive.org/release-group/" <> mbid <> "/front-250")
+      , subtitle = nonBlank (T.concat artistCreditParts)
+      , year = firstReleaseDate >>= yearFromDate
+      , imageUrl = Just (coverArtUrl musicBrainzId)
       , description = primaryType
       }
-  where
-    -- An artist credit is a list of names joined by phrases such as " feat. ".
-    parseCredit = withObject "artist credit" $ \c -> do
-      name <- c .: "name"
-      joinPhrase <- c .:? "joinphrase"
-      pure (name <> fromMaybe "" joinPhrase)
+
+parseArtistCreditPart :: Value -> Parser Text
+parseArtistCreditPart = withObject "artist credit" $ \credit -> do
+  artistName <- credit .: "name"
+  joinPhrase <- credit .:? "joinphrase"
+  pure (artistName <> fromMaybe "" joinPhrase)
+
+coverArtUrl :: Text -> Text
+coverArtUrl musicBrainzId = "https://coverartarchive.org/release-group/" <> musicBrainzId <> "/front-250"

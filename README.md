@@ -73,7 +73,7 @@ app/Main.hs                         bootstrap: config, pool, migrações, Warp
 src/Rateverything/
   Api.hs                            rotas da API como tipo (Servant)
   Server.hs                         liga cada rota ao seu handler
-  App.hs                            AppM (ReaderT Env Handler), runDb, failWith
+  App.hs                            AppM (ReaderT Env Handler), runDb, failWith, failUnless, orFailWith
   Types.hs                          tipos de domínio + JSON
   Config.hs                         variáveis de ambiente / .env
   Auth.hs                           bcrypt, tokens, AuthHandler

@@ -1,9 +1,5 @@
-# Ambiente de desenvolvimento do Rateverything para GitHub Codespaces.
-# Mesmas versões usadas localmente: GHC 9.10.3 + cabal 3.16.1.0 (via ghcup).
 FROM mcr.microsoft.com/devcontainers/base:bookworm
 
-# Dependências de sistema do GHC, libpq-dev (driver do PostgreSQL), psql e
-# sqlite3 (só para importar dados da versão SQLite).
 RUN apt-get update \
     && export DEBIAN_FRONTEND=noninteractive \
     && apt-get install -y --no-install-recommends \

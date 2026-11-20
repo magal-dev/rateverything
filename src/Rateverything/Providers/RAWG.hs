@@ -1,4 +1,3 @@
--- | Video games from RAWG (https://rawg.io/apidocs).
 module Rateverything.Providers.RAWG
   ( searchGames
   ) where
@@ -11,30 +10,29 @@ import Network.HTTP.Client (Manager)
 import Rateverything.Providers.Http
 import Rateverything.Types (ExternalItem (..))
 
--- | Arguments: HTTP manager, API key, search term.
 searchGames :: Manager -> Text -> Text -> IO (Either ProviderError [ExternalItem])
-searchGames manager apiKey term =
+searchGames manager apiKey searchTerm =
   getJson
     manager
     "https://api.rawg.io/api/games"
-    [("key", apiKey), ("search", term), ("page_size", "20")]
+    [("key", apiKey), ("search", searchTerm), ("page_size", "20")]
     []
-    (withObject "RAWG search" $ \o -> o .: "results" >>= mapM parseGame)
+    (withObject "RAWG search" $ \response -> response .: "results" >>= mapM parseGame)
 
 parseGame :: Value -> Parser ExternalItem
-parseGame = withObject "RAWG game" $ \o -> do
-  rawgId <- o .: "id" :: Parser Int
-  name <- o .: "name"
-  released <- o .:? "released"
-  image <- o .:? "background_image"
-  genres <- o .:? "genres" .!= [] >>= mapM (withObject "genre" (.: "name"))
+parseGame = withObject "RAWG game" $ \game -> do
+  rawgId <- game .: "id" :: Parser Int
+  name <- game .: "name"
+  releaseDate <- game .:? "released"
+  backgroundImage <- game .:? "background_image"
+  genreNames <- game .:? "genres" .!= [] >>= mapM (withObject "genre" (.: "name"))
   pure
     ExternalItem
       { source = "rawg"
       , externalId = T.pack (show rawgId)
       , title = name
-      , subtitle = nonBlank (T.intercalate ", " genres)
-      , year = released >>= yearFromDate
-      , imageUrl = image
+      , subtitle = nonBlank (T.intercalate ", " genreNames)
+      , year = releaseDate >>= yearFromDate
+      , imageUrl = backgroundImage
       , description = Nothing
       }

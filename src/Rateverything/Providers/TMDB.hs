@@ -1,4 +1,3 @@
--- | Films and TV series from The Movie Database (https://developer.themoviedb.org).
 module Rateverything.Providers.TMDB
   ( searchMovies
   , searchSeries
@@ -13,37 +12,54 @@ import Network.HTTP.Client (Manager)
 import Rateverything.Providers.Http
 import Rateverything.Types (ExternalItem (..))
 
--- | Arguments: HTTP manager, API key (v3), language (e.g. @pt-BR@), search term.
+data TmdbCatalog = TmdbCatalog
+  { searchPath :: String
+  , sourceKey :: Text
+  , titleField :: Text
+  , releaseDateField :: Text
+  }
+
+movieCatalog :: TmdbCatalog
+movieCatalog =
+  TmdbCatalog {searchPath = "movie", sourceKey = "tmdb-movie", titleField = "title", releaseDateField = "release_date"}
+
+seriesCatalog :: TmdbCatalog
+seriesCatalog =
+  TmdbCatalog {searchPath = "tv", sourceKey = "tmdb-tv", titleField = "name", releaseDateField = "first_air_date"}
+
 searchMovies :: Manager -> Text -> Text -> Text -> IO (Either ProviderError [ExternalItem])
-searchMovies = search "movie" "tmdb-movie" "title" "release_date"
+searchMovies = searchCatalog movieCatalog
 
 searchSeries :: Manager -> Text -> Text -> Text -> IO (Either ProviderError [ExternalItem])
-searchSeries = search "tv" "tmdb-tv" "name" "first_air_date"
+searchSeries = searchCatalog seriesCatalog
 
-search :: String -> Text -> Text -> Text -> Manager -> Text -> Text -> Text -> IO (Either ProviderError [ExternalItem])
-search kind source titleKey dateKey manager apiKey language term =
+searchCatalog :: TmdbCatalog -> Manager -> Text -> Text -> Text -> IO (Either ProviderError [ExternalItem])
+searchCatalog catalog manager apiKey language searchTerm =
   getJson
     manager
-    ("https://api.themoviedb.org/3/search/" <> kind)
-    [("api_key", apiKey), ("language", language), ("query", term), ("include_adult", "false")]
+    ("https://api.themoviedb.org/3/search/" <> catalog.searchPath)
+    [("api_key", apiKey), ("language", language), ("query", searchTerm), ("include_adult", "false")]
     []
-    (withObject "TMDB search" $ \o -> o .: "results" >>= mapM parseResult)
-  where
-    parseResult :: Value -> Parser ExternalItem
-    parseResult = withObject "TMDB result" $ \o -> do
-      tmdbId <- o .: "id" :: Parser Int
-      title <- o .: Key.fromText titleKey
-      original <- o .:? Key.fromText ("original_" <> titleKey)
-      date <- o .:? Key.fromText dateKey
-      poster <- o .:? "poster_path"
-      overview <- o .:? "overview"
-      pure
-        ExternalItem
-          { source = source
-          , externalId = T.pack (show tmdbId)
-          , title = title
-          , subtitle = if original == Just title then Nothing else original
-          , year = date >>= yearFromDate
-          , imageUrl = ("https://image.tmdb.org/t/p/w342" <>) <$> poster
-          , description = nonBlank =<< overview
-          }
+    (withObject "TMDB search" $ \response -> response .: "results" >>= mapM (parseResult catalog))
+
+parseResult :: TmdbCatalog -> Value -> Parser ExternalItem
+parseResult catalog = withObject "TMDB result" $ \result -> do
+  tmdbId <- result .: "id" :: Parser Int
+  title <- result .: Key.fromText catalog.titleField
+  originalTitle <- result .:? Key.fromText ("original_" <> catalog.titleField)
+  releaseDate <- result .:? Key.fromText catalog.releaseDateField
+  posterPath <- result .:? "poster_path"
+  overview <- result .:? "overview"
+  pure
+    ExternalItem
+      { source = catalog.sourceKey
+      , externalId = T.pack (show tmdbId)
+      , title = title
+      , subtitle = if originalTitle == Just title then Nothing else originalTitle
+      , year = releaseDate >>= yearFromDate
+      , imageUrl = posterUrl <$> posterPath
+      , description = nonBlank =<< overview
+      }
+
+posterUrl :: Text -> Text
+posterUrl posterPath = "https://image.tmdb.org/t/p/w342" <> posterPath

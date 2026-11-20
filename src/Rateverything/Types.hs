@@ -1,6 +1,5 @@
 {-# LANGUAGE NoFieldSelectors #-}
 
--- | Domain types shared by the database layer, providers and the HTTP API.
 module Rateverything.Types
   ( UserId
   , ItemId
@@ -14,11 +13,11 @@ module Rateverything.Types
   , SearchHit (..)
   , ItemDetail (..)
   , DiaryEntry (..)
-    -- * Requests
   , Credentials (..)
   , Session (..)
   , NewCategory (..)
   , NewReview (..)
+  , NewManualItem (..)
   ) where
 
 import Data.Aeson (FromJSON, ToJSON)
@@ -44,9 +43,6 @@ data User = User
 instance FromRow User where
   fromRow = User <$> field <*> field <*> field <*> field
 
--- | A kind of thing that can be rated. Built-in categories are backed by an
--- external provider ("tmdb-movie", "musicbrainz", ...); custom ones belong to
--- a user and hold manually created items.
 data Category = Category
   { id :: CategoryId
   , slug :: Text
@@ -83,8 +79,6 @@ instance FromRow Item where
     Item <$> field <*> field <*> field <*> field <*> field <*> field
       <*> field <*> field <*> field <*> field <*> field
 
--- | A diary entry: a rating and/or a written review of an item.
--- Ratings go from 1 to 10 (half stars on a 5-star scale).
 data Review = Review
   { id :: ReviewId
   , userId :: UserId
@@ -105,7 +99,6 @@ instance FromRow Review where
     Review <$> field <*> field <*> field <*> field <*> field
       <*> field <*> field <*> field <*> field <*> field
 
--- | What a provider returns from a search, before it is stored locally.
 data ExternalItem = ExternalItem
   { source :: Text
   , externalId :: Text
@@ -118,7 +111,6 @@ data ExternalItem = ExternalItem
   deriving stock (Show, Generic)
   deriving anyclass (ToJSON, FromJSON)
 
--- | A search result, with the local item id when it was already imported.
 data SearchHit = SearchHit
   { item :: ExternalItem
   , itemId :: Maybe ItemId
@@ -172,3 +164,13 @@ data NewReview = NewReview
   }
   deriving stock (Generic)
   deriving anyclass (FromJSON)
+
+data NewManualItem = NewManualItem
+  { categoryId :: CategoryId
+  , createdBy :: UserId
+  , title :: Text
+  , subtitle :: Maybe Text
+  , year :: Maybe Int
+  , imageUrl :: Maybe Text
+  , description :: Maybe Text
+  }

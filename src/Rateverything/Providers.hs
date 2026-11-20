@@ -1,4 +1,3 @@
--- | Dispatches a category's @provider@ key to the matching external catalogue.
 module Rateverything.Providers
   ( searchProvider
   ) where
@@ -13,14 +12,23 @@ import Rateverything.Providers.RAWG (searchGames)
 import Rateverything.Providers.TMDB (searchMovies, searchSeries)
 import Rateverything.Types (ExternalItem)
 
--- | Searches the provider registered under the given key.
-searchProvider :: Config -> Manager -> Text -> Text -> IO (Either ProviderError [ExternalItem])
-searchProvider config manager provider term = case provider of
-  "tmdb-movie" -> withKey "TMDB_API_KEY" config.tmdbApiKey $ \k -> searchMovies manager k config.tmdbLanguage term
-  "tmdb-tv" -> withKey "TMDB_API_KEY" config.tmdbApiKey $ \k -> searchSeries manager k config.tmdbLanguage term
-  "rawg" -> withKey "RAWG_API_KEY" config.rawgApiKey $ \k -> searchGames manager k term
-  "musicbrainz" -> searchAlbums manager config.musicBrainzUserAgent term
-  "openlibrary" -> searchBooks manager term
-  other -> pure (Left (ProviderUnavailable ("Unknown provider: " <> other)))
-  where
-    withKey name key action = maybe (pure (Left (ProviderNotConfigured name))) action key
+type SearchResult = IO (Either ProviderError [ExternalItem])
+
+searchProvider :: Config -> Manager -> Text -> Text -> SearchResult
+searchProvider config manager providerKey searchTerm = case providerKey of
+  "tmdb-movie" ->
+    withApiKey "TMDB_API_KEY" config.tmdbApiKey $ \apiKey ->
+      searchMovies manager apiKey config.tmdbLanguage searchTerm
+  "tmdb-tv" ->
+    withApiKey "TMDB_API_KEY" config.tmdbApiKey $ \apiKey ->
+      searchSeries manager apiKey config.tmdbLanguage searchTerm
+  "rawg" ->
+    withApiKey "RAWG_API_KEY" config.rawgApiKey $ \apiKey ->
+      searchGames manager apiKey searchTerm
+  "musicbrainz" -> searchAlbums manager config.musicBrainzUserAgent searchTerm
+  "openlibrary" -> searchBooks manager searchTerm
+  unknownKey -> pure (Left (ProviderUnavailable ("Unknown provider: " <> unknownKey)))
+
+withApiKey :: Text -> Maybe Text -> (Text -> SearchResult) -> SearchResult
+withApiKey variableName maybeApiKey searchWithKey =
+  maybe (pure (Left (ProviderNotConfigured variableName))) searchWithKey maybeApiKey

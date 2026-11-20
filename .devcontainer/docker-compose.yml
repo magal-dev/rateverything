@@ -1,5 +1,3 @@
-# App + PostgreSQL para o Codespaces. O app compartilha a rede do banco, então
-# o Postgres responde em localhost:5432 de dentro do container de desenvolvimento.
 services:
   app:
     build:

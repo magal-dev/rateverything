@@ -7,7 +7,6 @@ on:
   workflow_dispatch:
 
 jobs:
-  # Build + PostgreSQL de serviço + teste de fumaça da API. Roda a cada push.
   api:
     runs-on: ubuntu-latest
     services:
@@ -54,8 +53,6 @@ jobs:
       - if: always()
         run: cat server.log || true
 
-  # Monta o mesmo devcontainer (docker compose: app + Postgres) que o Codespaces
-  # usa e roda o app lá dentro. Mais lento; roda em PRs e sob demanda.
   devcontainer:
     if: github.event_name != 'push'
     runs-on: ubuntu-latest
@@ -67,7 +64,6 @@ jobs:
         with:
           path: rateverything
 
-      # O usuário vscode (uid 1000) do container precisa escrever no checkout.
       - run: chmod -R a+rwX rateverything
 
       - name: Monta a imagem e sobe app + Postgres

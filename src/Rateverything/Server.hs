@@ -1,5 +1,3 @@
--- | The WAI application: connects each route in "Rateverything.Api" to its
--- handler (under @Handlers/@) and serves uploads and the frontend.
 module Rateverything.Server
   ( application
   ) where
@@ -10,7 +8,7 @@ import Network.Wai.Application.Static (defaultWebAppSettings)
 import Network.Wai.Parse (defaultParseRequestBodyOptions, setMaxRequestFileSize, setMaxRequestNumFiles)
 import Rateverything.Api
 import Rateverything.App
-import Rateverything.Auth (authHandler)
+import Rateverything.Auth (bearerAuthHandler)
 import Rateverything.Config (Config (..))
 import Rateverything.Handlers.Auth
 import Rateverything.Handlers.Categories
@@ -23,48 +21,58 @@ import Servant.Multipart (MultipartOptions (..), Tmp, defaultMultipartOptions)
 import Servant.Server.Experimental.Auth (AuthHandler)
 import WaiAppStatic.Types (MaxAge (NoCache), StaticSettings (..), unsafeToPiece)
 
+type RequestContext = '[AuthHandler Request User, MultipartOptions Tmp]
+
 application :: Env -> Application
 application env =
-  serveWithContext (Proxy @Api) context $
-    hoistServerWithContext (Proxy @(PublicApi :<|> PrivateApi)) (Proxy @Ctx) (`runReaderT` env) (publicServer :<|> privateServer)
+  serveWithContext (Proxy @Api) (requestContext env) $
+    apiServer env
       :<|> serveDirectoryWebApp env.config.uploadDir
-      :<|> serveDirectoryWith staticSettings
-  where
-    -- Frontend files keep stable names, so browsers must revalidate (via ETag)
-    -- on every load. Without an explicit no-cache they would fall back to
-    -- heuristic caching and keep serving an old app.js.
-    staticSettings =
-      (defaultWebAppSettings env.config.staticDir) {ssIndices = [unsafeToPiece "index.html"], ssMaxAge = NoCache}
-    context = authHandler env.pool :. multipartOptions :. EmptyContext
-    multipartOptions :: MultipartOptions Tmp
-    multipartOptions =
-      (defaultMultipartOptions (Proxy @Tmp))
-        { generalOptions =
-            setMaxRequestNumFiles 1 . setMaxRequestFileSize (fromIntegral maxImageBytes) $
-              defaultParseRequestBodyOptions
-        }
+      :<|> serveDirectoryWith (frontendSettings env.config.staticDir)
 
-type Ctx = '[AuthHandler Request User, MultipartOptions Tmp]
+apiServer :: Env -> Server (PublicApi :<|> PrivateApi)
+apiServer env =
+  hoistServerWithContext
+    (Proxy @(PublicApi :<|> PrivateApi))
+    (Proxy @RequestContext)
+    (`runReaderT` env)
+    (publicServer :<|> privateServer)
 
--- | Same order as the routes in 'PublicApi'.
+requestContext :: Env -> Context RequestContext
+requestContext env = bearerAuthHandler env.pool :. singleImageUploadOptions :. EmptyContext
+
+singleImageUploadOptions :: MultipartOptions Tmp
+singleImageUploadOptions =
+  (defaultMultipartOptions (Proxy @Tmp))
+    { generalOptions =
+        setMaxRequestNumFiles 1 . setMaxRequestFileSize (fromIntegral maxImageBytes) $
+          defaultParseRequestBodyOptions
+    }
+
+frontendSettings :: FilePath -> StaticSettings
+frontendSettings staticDir =
+  (defaultWebAppSettings staticDir)
+    { ssIndices = [unsafeToPiece "index.html"]
+    , ssMaxAge = NoCache
+    }
+
 publicServer :: ServerT PublicApi AppM
 publicServer =
   register
     :<|> login
     :<|> listCategories
     :<|> searchCategory
-    :<|> listItems
-    :<|> itemDetail
-    :<|> diary
+    :<|> listCategoryItems
+    :<|> getItemDetail
+    :<|> getUserDiary
 
--- | Same order as the routes in 'PrivateApi'; every handler gets the logged-in user.
 privateServer :: ServerT PrivateApi AppM
-privateServer user =
-  pure user
-    :<|> updateAvatar user
+privateServer loggedInUser =
+  pure loggedInUser
+    :<|> updateAvatar loggedInUser
     :<|> logout
-    :<|> createCategory user
+    :<|> createCategory loggedInUser
     :<|> importItem
-    :<|> createItem user
-    :<|> addReview user
-    :<|> removeReview user
+    :<|> createManualItem loggedInUser
+    :<|> addReview loggedInUser
+    :<|> deleteReview loggedInUser

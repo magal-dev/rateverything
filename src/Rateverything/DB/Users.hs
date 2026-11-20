@@ -1,9 +1,8 @@
--- | Queries for users and their login sessions.
 module Rateverything.DB.Users
   ( insertUser
-  , findUserByName
-  , findUserByTokenHash
-  , setAvatar
+  , findUserWithPasswordHash
+  , findUserBySessionTokenHash
+  , setAvatarUrl
   , insertSession
   , deleteSession
   ) where
@@ -12,41 +11,50 @@ import Control.Monad (void)
 import Data.Maybe (listToMaybe)
 import Data.Text (Text)
 import Database.PostgreSQL.Simple
-import Rateverything.DB.Connection (single)
+import Rateverything.DB.Connection (firstRowOrFail)
 import Rateverything.Types
 
 userColumns :: Query
 userColumns = "id, username, avatar_url, created_at"
 
 insertUser :: Connection -> Text -> Text -> IO User
-insertUser conn name passwordHash =
-  single "row"
-    =<< query conn ("INSERT INTO users (username, password_hash) VALUES (?, ?) RETURNING " <> userColumns) (name, passwordHash)
+insertUser conn username passwordHash =
+  firstRowOrFail "row"
+    =<< query
+      conn
+      ("INSERT INTO users (username, password_hash) VALUES (?, ?) RETURNING " <> userColumns)
+      (username, passwordHash)
 
--- | Returns the user together with its password hash.
-findUserByName :: Connection -> Text -> IO (Maybe (User, Text))
-findUserByName conn name = do
-  rows <- query conn ("SELECT " <> userColumns <> ", password_hash FROM users WHERE lower(username) = lower(?)") (Only name)
+findUserWithPasswordHash :: Connection -> Text -> IO (Maybe (User, Text))
+findUserWithPasswordHash conn username = do
+  rows <-
+    query
+      conn
+      ("SELECT " <> userColumns <> ", password_hash FROM users WHERE lower(username) = lower(?)")
+      (Only username)
   pure $ case rows of
-    (u :. Only h) : _ -> Just (u, h)
+    (user :. Only passwordHash) : _ -> Just (user, passwordHash)
     [] -> Nothing
 
-findUserByTokenHash :: Connection -> Text -> IO (Maybe User)
-findUserByTokenHash conn tokenHash =
+findUserBySessionTokenHash :: Connection -> Text -> IO (Maybe User)
+findUserBySessionTokenHash conn tokenHash =
   listToMaybe
     <$> query
       conn
-      "SELECT u.id, u.username, u.avatar_url, u.created_at FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token_hash = ?"
+      "SELECT u.id, u.username, u.avatar_url, u.created_at\
+      \ FROM sessions s JOIN users u ON u.id = s.user_id\
+      \ WHERE s.token_hash = ?"
       (Only tokenHash)
 
--- | Sets the user's profile picture URL and returns the updated user.
-setAvatar :: Connection -> UserId -> Text -> IO User
-setAvatar conn uid url =
-  single "row" =<< query conn ("UPDATE users SET avatar_url = ? WHERE id = ? RETURNING " <> userColumns) (url, uid)
+setAvatarUrl :: Connection -> UserId -> Text -> IO User
+setAvatarUrl conn userId avatarUrl =
+  firstRowOrFail "row"
+    =<< query conn ("UPDATE users SET avatar_url = ? WHERE id = ? RETURNING " <> userColumns) (avatarUrl, userId)
 
 insertSession :: Connection -> Text -> UserId -> IO ()
-insertSession conn tokenHash uid =
-  void $ execute conn "INSERT INTO sessions (token_hash, user_id) VALUES (?, ?)" (tokenHash, uid)
+insertSession conn tokenHash userId =
+  void $ execute conn "INSERT INTO sessions (token_hash, user_id) VALUES (?, ?)" (tokenHash, userId)
 
 deleteSession :: Connection -> Text -> IO ()
-deleteSession conn tokenHash = void $ execute conn "DELETE FROM sessions WHERE token_hash = ?" (Only tokenHash)
+deleteSession conn tokenHash =
+  void $ execute conn "DELETE FROM sessions WHERE token_hash = ?" (Only tokenHash)
