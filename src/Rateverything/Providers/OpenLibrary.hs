@@ -1,4 +1,3 @@
--- | Books from Open Library (https://openlibrary.org/developers/api). No API key needed.
 module Rateverything.Providers.OpenLibrary
   ( searchBooks
   ) where
@@ -12,28 +11,31 @@ import Rateverything.Providers.Http
 import Rateverything.Types (ExternalItem (..))
 
 searchBooks :: Manager -> Text -> IO (Either ProviderError [ExternalItem])
-searchBooks manager term =
+searchBooks manager searchTerm =
   getJson
     manager
     "https://openlibrary.org/search.json"
-    [("q", term), ("limit", "20"), ("fields", "key,title,author_name,first_publish_year,cover_i")]
+    [("q", searchTerm), ("limit", "20"), ("fields", "key,title,author_name,first_publish_year,cover_i")]
     [("User-Agent", "Rateverything/0.1")]
-    (withObject "Open Library search" $ \o -> o .: "docs" >>= mapM parseDoc)
+    (withObject "Open Library search" $ \response -> response .: "docs" >>= mapM parseBook)
 
-parseDoc :: Value -> Parser ExternalItem
-parseDoc = withObject "Open Library doc" $ \o -> do
-  key <- o .: "key"
-  title <- o .: "title"
-  authors <- o .:? "author_name" .!= []
-  firstYear <- o .:? "first_publish_year"
-  cover <- o .:? "cover_i" :: Parser (Maybe Int)
+parseBook :: Value -> Parser ExternalItem
+parseBook = withObject "Open Library doc" $ \book -> do
+  workKey <- book .: "key"
+  title <- book .: "title"
+  authorNames <- book .:? "author_name" .!= []
+  firstPublishYear <- book .:? "first_publish_year"
+  coverId <- book .:? "cover_i" :: Parser (Maybe Int)
   pure
     ExternalItem
       { source = "openlibrary"
-      , externalId = key
+      , externalId = workKey
       , title = title
-      , subtitle = nonBlank (T.intercalate ", " authors)
-      , year = firstYear
-      , imageUrl = (\c -> "https://covers.openlibrary.org/b/id/" <> T.pack (show c) <> "-M.jpg") <$> cover
+      , subtitle = nonBlank (T.intercalate ", " authorNames)
+      , year = firstPublishYear
+      , imageUrl = coverUrl <$> coverId
       , description = Nothing
       }
+
+coverUrl :: Int -> Text
+coverUrl coverId = "https://covers.openlibrary.org/b/id/" <> T.pack (show coverId) <> "-M.jpg"

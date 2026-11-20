@@ -1,6 +1,5 @@
 {-# OPTIONS_GHC -Wno-orphans #-}
 
--- | The HTTP API, described as a Servant type.
 module Rateverything.Api
   ( Api
   , PublicApi
@@ -28,7 +27,6 @@ type PublicApi =
     :<|> "items" :> Capture "itemId" ItemId :> Get '[JSON] ItemDetail
     :<|> "users" :> Capture "username" Text :> "diary" :> Get '[JSON] [DiaryEntry]
 
--- | Endpoints that need @Authorization: Bearer <token>@.
 type PrivateApi =
   AuthProtect "bearer"
     :> ( "me" :> Get '[JSON] User
@@ -46,7 +44,6 @@ type Api =
     :<|> "uploads" :> Raw
     :<|> Raw
 
--- | A manually created item, sent as @multipart/form-data@ so it can carry a cover image.
 data NewItemForm = NewItemForm
   { title :: Text
   , subtitle :: Maybe Text
@@ -58,24 +55,24 @@ data NewItemForm = NewItemForm
 instance FromMultipart Tmp NewItemForm where
   fromMultipart form = do
     title <- lookupInput "title" form
-    year <- traverse parseYear (optionalInput "year")
+    year <- traverse parseYear (nonBlankInput "year")
     pure
       NewItemForm
         { title = title
-        , subtitle = optionalInput "subtitle"
+        , subtitle = nonBlankInput "subtitle"
         , year = year
-        , description = optionalInput "description"
-        , imagePath = case lookupFile "image" form of
-            Right file | not (T.null file.fdFileName) -> Just file.fdPayload
-            _ -> Nothing
+        , description = nonBlankInput "description"
+        , imagePath = chosenImagePath
         }
     where
-      optionalInput name = case lookupInput name form of
-        Right v | not (T.null (T.strip v)) -> Just (T.strip v)
+      nonBlankInput fieldName = case lookupInput fieldName form of
+        Right value | not (T.null (T.strip value)) -> Just (T.strip value)
         _ -> Nothing
-      parseYear v = maybe (Left "year must be a number") Right (readMaybe (T.unpack v))
+      parseYear yearText = maybe (Left "year must be a number") Right (readMaybe (T.unpack yearText))
+      chosenImagePath = case lookupFile "image" form of
+        Right file | not (T.null file.fdFileName) -> Just file.fdPayload
+        _ -> Nothing
 
--- | A new profile picture, sent as @multipart/form-data@ in the @image@ field.
 newtype AvatarForm = AvatarForm {imagePath :: FilePath}
 
 instance FromMultipart Tmp AvatarForm where

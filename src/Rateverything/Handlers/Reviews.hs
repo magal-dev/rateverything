@@ -1,11 +1,9 @@
--- | Writing and deleting reviews, and the user's diary.
 module Rateverything.Handlers.Reviews
   ( addReview
-  , removeReview
-  , diary
+  , deleteReview
+  , getUserDiary
   ) where
 
-import Control.Monad (unless, when)
 import Control.Monad.IO.Class (liftIO)
 import Data.Foldable (for_)
 import Data.Text (Text)
@@ -17,27 +15,47 @@ import Rateverything.Types
 import Servant
 
 addReview :: User -> ItemId -> NewReview -> AppM Review
-addReview user iid new = do
-  case new.rating of
-    Just r | r < 1 || r > 10 -> failWith err400 "A nota deve ir de 1 a 10 (meias estrelas)"
-    _ -> pure ()
-  for_ new.consumedOn $ \day -> do
-    -- One day of slack for users in time zones ahead of UTC.
-    tomorrow <- liftIO (addDays 1 . utctDay <$> getCurrentTime)
-    when (day < earliestDiaryDate || day > tomorrow) $
-      failWith err400 "A data precisa estar entre 1900 e hoje"
-  _ <- runDb (`DB.findItem` iid) >>= maybe (failWith err404 "Item não encontrado") pure
-  let body = new.body >>= \b -> if T.null (T.strip b) then Nothing else Just (T.strip b)
-  runDb $ \conn -> DB.insertReview conn user.id iid NewReview {rating = new.rating, body = body, liked = new.liked, consumedOn = new.consumedOn}
+addReview user itemId newReview = do
+  for_ newReview.rating validateRating
+  for_ newReview.consumedOn validateConsumedOn
+  _ <- runDb (`DB.findItem` itemId) `orFailWith` (err404, "Item não encontrado")
+  let cleanedReview =
+        NewReview
+          { rating = newReview.rating
+          , body = nonBlankStripped =<< newReview.body
+          , liked = newReview.liked
+          , consumedOn = newReview.consumedOn
+          }
+  runDb $ \conn -> DB.insertReview conn user.id itemId cleanedReview
 
-earliestDiaryDate :: Day
-earliestDiaryDate = fromGregorian 1900 1 1
+validateRating :: Int -> AppM ()
+validateRating rating =
+  failUnless (rating >= 1 && rating <= 10) err400 "A nota deve ir de 1 a 10 (meias estrelas)"
 
-removeReview :: User -> ReviewId -> AppM NoContent
-removeReview user rid = do
-  removed <- runDb $ \conn -> DB.deleteReview conn user.id rid
-  unless removed $ failWith err404 "Review não encontrada"
+validateConsumedOn :: Day -> AppM ()
+validateConsumedOn consumedOn = do
+  latestAllowedDate <- liftIO tomorrowInUtc
+  failUnless (consumedOn >= earliestAllowedDate && consumedOn <= latestAllowedDate) err400
+    "A data precisa estar entre 1900 e hoje"
+
+earliestAllowedDate :: Day
+earliestAllowedDate = fromGregorian 1900 1 1
+
+tomorrowInUtc :: IO Day
+tomorrowInUtc = addDays 1 . utctDay <$> getCurrentTime
+
+nonBlankStripped :: Text -> Maybe Text
+nonBlankStripped text
+  | T.null stripped = Nothing
+  | otherwise = Just stripped
+  where
+    stripped = T.strip text
+
+deleteReview :: User -> ReviewId -> AppM NoContent
+deleteReview user reviewId = do
+  wasDeleted <- runDb $ \conn -> DB.deleteOwnReview conn user.id reviewId
+  failUnless wasDeleted err404 "Review não encontrada"
   pure NoContent
 
-diary :: Text -> AppM [DiaryEntry]
-diary name = runDb $ \conn -> DB.diaryFor conn name
+getUserDiary :: Text -> AppM [DiaryEntry]
+getUserDiary username = runDb $ \conn -> DB.diaryOfUser conn username

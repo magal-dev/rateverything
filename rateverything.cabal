@@ -25,18 +25,15 @@ library
   import:          shared
   hs-source-dirs:  src
   exposed-modules:
-    -- núcleo: rotas, tipos, configuração e o monad da aplicação
     Rateverything.Api
     Rateverything.App
     Rateverything.Config
     Rateverything.Types
     Rateverything.Server
-    -- handlers HTTP, um por recurso
     Rateverything.Handlers.Auth
     Rateverything.Handlers.Categories
     Rateverything.Handlers.Items
     Rateverything.Handlers.Reviews
-    -- banco de dados (PostgreSQL), um módulo por tabela
     Rateverything.DB
     Rateverything.DB.Connection
     Rateverything.DB.Migrations
@@ -44,14 +41,12 @@ library
     Rateverything.DB.Categories
     Rateverything.DB.Items
     Rateverything.DB.Reviews
-    -- APIs externas de busca
     Rateverything.Providers
     Rateverything.Providers.Http
     Rateverything.Providers.MusicBrainz
     Rateverything.Providers.OpenLibrary
     Rateverything.Providers.RAWG
     Rateverything.Providers.TMDB
-    -- segurança e arquivos
     Rateverything.Auth
     Rateverything.Uploads
   build-depends:

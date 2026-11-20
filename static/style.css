@@ -15,7 +15,6 @@
   --drop: 0 7px 0 rgba(12, 7, 30, 0.38);
   --drop-high: 0 12px 0 rgba(12, 7, 30, 0.32);
   --font: "Fredoka", system-ui, -apple-system, "Segoe UI", sans-serif;
-  /* Motion: a springy overshoot for hovers, a soft ease for entrances. */
   --spring: cubic-bezier(0.34, 1.56, 0.64, 1);
   --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
 }
@@ -30,11 +29,8 @@ input, textarea, button { font: inherit; }
 .muted { color: var(--muted); }
 .lower { text-transform: lowercase; }
 
-/* --- backdrop -------------------------------------------------------------- */
-
 .scene { position: fixed; inset: 0; z-index: -1; overflow: hidden; background: #2c2380; }
 .scene svg { width: 100%; height: 100%; display: block; }
-/* Parallax layers are moved by app.js (pointer + scroll). */
 .scene .layer { will-change: transform; }
 .scene .palm { transform-box: fill-box; transform-origin: 50% 100%; }
 @media (prefers-reduced-motion: no-preference) {
@@ -54,7 +50,6 @@ input, textarea, button { font: inherit; }
   .scene .blimp { animation: cruise 46s ease-in-out infinite alternate, bob 5s ease-in-out infinite alternate; }
   .scene .wheel { animation: spin 50s linear infinite; }
   .scene .blink { animation: blink 1.6s steps(1) infinite; }
-  /* Same lane, same speed: the delays keep the cars evenly spaced so none overtakes. */
   .scene .car { animation: drive 24s linear infinite; }
   .scene .car.c2 { animation-delay: -8s; }
   .scene .car.c3 { animation-delay: -16s; }
@@ -62,7 +57,6 @@ input, textarea, button { font: inherit; }
   .scene .bulbs circle:nth-child(odd) { animation-delay: -0.45s; }
   .scene .bus { animation: drive-back 34s linear infinite; animation-delay: -9s; }
 }
-/* Pivots for the moving scene pieces (their own boxes, not the whole SVG). */
 .scene .beam { transform-box: fill-box; transform-origin: 50% 100%; }
 .scene .wheel { transform-box: fill-box; transform-origin: center; }
 .scene .car, .scene .bus { transform-box: fill-box; transform-origin: center; }
@@ -77,8 +71,6 @@ input, textarea, button { font: inherit; }
 @keyframes sway { from { transform: rotate(-1.6deg); } to { transform: rotate(1.6deg); } }
 @keyframes twinkle { from { opacity: 1; } to { opacity: 0.25; } }
 @keyframes glow { to { transform: scale(1.12); opacity: 0.1; } }
-
-/* --- top bar --------------------------------------------------------------- */
 
 .topbar { position: sticky; top: 0; z-index: 10; display: flex; align-items: center; gap: 28px; padding: 12px 24px; background: #0d0a1c; border-bottom: 4px solid var(--accent); }
 .logo { display: flex; flex-direction: column; font-weight: 700; font-size: 25px; line-height: 0.88; letter-spacing: -0.5px; color: #fff; transition: transform 0.35s var(--spring); }
@@ -102,8 +94,6 @@ img.avatar { object-fit: cover; display: block; }
 
 main { max-width: 1200px; margin: 0 auto; padding: 30px 20px 90px; transition: opacity 0.14s ease, transform 0.14s ease; }
 
-/* --- page transitions -------------------------------------------------------- */
-
 main.page-out { opacity: 0; transform: translateY(8px); }
 .page-in > * { animation: rise 0.45s var(--ease-out) backwards; }
 .page-in > :nth-child(2) { animation-delay: 70ms; }
@@ -114,8 +104,6 @@ main.page-out { opacity: 0; transform: translateY(8px); }
 @keyframes wiggle { 30% { transform: rotate(-10deg) scale(1.08); } 60% { transform: rotate(7deg) scale(1.08); } }
 @keyframes shake { 25% { transform: translateX(-5px); } 75% { transform: translateX(5px); } }
 @keyframes pulse { 50% { opacity: 0.55; } }
-
-/* --- shared building blocks ------------------------------------------------- */
 
 .panel { background: var(--ink); border-radius: 28px; padding: 24px; box-shadow: var(--drop); }
 .panel + .panel { margin-top: 20px; }
@@ -149,9 +137,6 @@ textarea { min-height: 100px; resize: vertical; }
 .loading { display: inline-block; background: var(--ink); padding: 12px 22px; border-radius: 999px; color: var(--muted); box-shadow: var(--drop); animation: pop-in 0.3s var(--ease-out) backwards, pulse 1.4s ease-in-out 0.3s infinite; }
 .searching { animation: pulse 1.4s ease-in-out infinite; }
 
-/* --- home ------------------------------------------------------------------ */
-
-/* The home page breaks out of <main>'s 1200px column to use wide screens. */
 .home {
   --wide: min(1440px, 100vw - 48px);
   margin-inline: calc((100% - var(--wide)) / 2);
@@ -169,7 +154,6 @@ textarea { min-height: 100px; resize: vertical; }
   transform: translateY(var(--y)) rotate(var(--r));
   transition: transform 0.4s var(--spring), background 0.2s, color 0.2s, box-shadow 0.25s;
 }
-/* Second column sits a little lower, like a hand-placed deck of cards. */
 .menu-card:nth-child(even) { --r: 0.9deg; --y: 14px; }
 .menu-card:hover, .menu-card:focus-visible {
   background: var(--accent); color: var(--accent-ink); outline: none; box-shadow: var(--drop-high);
@@ -190,7 +174,6 @@ textarea { min-height: 100px; resize: vertical; }
 .menu-pill:hover { transform: translateY(-4px) rotate(-1.4deg) scale(1.05); box-shadow: 0 9px 0 var(--accent-dark); }
 .menu-pill .box { width: 36px; height: 36px; border-radius: 12px; background: #fff; display: grid; place-items: center; transition: transform 0.45s var(--spring); }
 .menu-pill:hover .box { transform: rotate(90deg); }
-/* Cards deal in one by one when the page appears. */
 .page-in .menu-card, .page-in .menu-pill { animation: pop-in 0.5s var(--spring) backwards; animation-delay: calc(min(var(--i), 10) * 55ms + 120ms); }
 .page-in .menu-head { animation: rise 0.5s var(--ease-out) backwards; }
 
@@ -207,8 +190,6 @@ textarea { min-height: 100px; resize: vertical; }
 .orbiter:hover svg, .orbiter:focus-visible svg { transform: scale(1.2) rotate(-8deg); }
 .orbiter-label { position: absolute; left: 50%; bottom: -14px; transform: translateX(-50%); white-space: nowrap; background: var(--ink); color: #fff; padding: 3px 12px; border-radius: 999px; font-weight: 600; font-size: 14px; opacity: 0; transition: opacity 0.15s; pointer-events: none; }
 .orbiter:hover .orbiter-label, .orbiter:focus-visible .orbiter-label { opacity: 1; }
-
-/* --- category page ---------------------------------------------------------- */
 
 .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 22px; }
 .chip { display: inline-flex; align-items: center; gap: 8px; padding: 5px 16px 5px 5px; border-radius: 999px; background: rgba(22, 17, 43, 0.88); font-weight: 500; text-transform: lowercase; transition: background 0.15s, transform 0.35s var(--spring); }
@@ -241,8 +222,6 @@ textarea { min-height: 100px; resize: vertical; }
 .card-title { margin-top: 8px; font-weight: 600; line-height: 1.2; }
 .card-sub { font-size: 13px; color: var(--muted); }
 
-/* --- item page -------------------------------------------------------------- */
-
 .detail { display: grid; grid-template-columns: 270px minmax(0, 1fr); gap: 36px; align-items: start; }
 .detail .poster .cover { border: 7px solid #fff; border-radius: 20px; transform: rotate(-3deg); box-shadow: 0 12px 0 rgba(12, 7, 30, 0.32); transition: transform 0.45s var(--spring); }
 .detail .poster .cover:hover { transform: rotate(1deg) scale(1.03); }
@@ -269,8 +248,6 @@ textarea { min-height: 100px; resize: vertical; }
 .review .avatar { width: 44px; height: 44px; }
 .review-meta { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 
-/* --- diary ------------------------------------------------------------------ */
-
 .profile-head { display: flex; align-items: center; gap: 18px; padding: 18px 24px; margin-bottom: 20px; }
 .profile-head .avatar { width: 64px; height: 64px; font-size: 30px; }
 .profile-head h1 { font-size: 34px; }
@@ -281,8 +258,6 @@ textarea { min-height: 100px; resize: vertical; }
 .diary-row:first-child { border-top: 0; }
 .diary-row .cover { width: 56px; border-width: 3px; border-radius: 10px; }
 .date-tag { background: var(--ink-2); border-radius: 12px; padding: 6px 10px; text-align: center; font-weight: 600; font-size: 14px; color: var(--muted); }
-
-/* --- auth / forms ----------------------------------------------------------- */
 
 .narrow { max-width: 520px; margin: 4vh auto 0; }
 .narrow h1 { font-size: 34px; margin-bottom: 6px; text-transform: lowercase; }
@@ -299,8 +274,6 @@ textarea { min-height: 100px; resize: vertical; }
 .hint { font-size: 13px; color: var(--muted); font-weight: 400; }
 .switch { margin: 0; }
 .switch a { color: var(--accent); font-weight: 600; }
-
-/* --- responsive ------------------------------------------------------------- */
 
 @media (max-width: 1100px) {
   .home { grid-template-columns: minmax(0, 1fr) minmax(0, 0.8fr); }
@@ -321,7 +294,6 @@ textarea { min-height: 100px; resize: vertical; }
   .menu { grid-template-columns: 1fr 1fr; }
 }
 
-/* Motion off: keep the layout, drop the movement. */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; animation-delay: 0s !important; transition-duration: 0.01ms !important; }
 }

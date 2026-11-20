@@ -1,52 +1,88 @@
-// Rateverything — minimal single-page frontend talking to the Haskell JSON API.
 "use strict";
 
-const app = document.getElementById("app");
-const nav = document.getElementById("nav");
+const page = document.getElementById("app");
+const navBar = document.getElementById("nav");
+const prefersReducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
 
-// --- session ------------------------------------------------------------------
+const MIN_DIARY_DATE = "1900-01-01";
+const MAX_ITEM_YEAR = new Date().getFullYear() + 5;
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+const PAGE_FADE_OUT_MS = 140;
+const LOADING_INDICATOR_DELAY_MS = 250;
+const DIARY_EXCERPT_LENGTH = 140;
 
 const session = {
   get token() { return localStorage.getItem("token"); },
-  get user() { const u = localStorage.getItem("user"); return u ? JSON.parse(u) : null; },
-  save(s) { localStorage.setItem("token", s.token); localStorage.setItem("user", JSON.stringify(s.user)); },
-  clear() { localStorage.removeItem("token"); localStorage.removeItem("user"); },
+  get user() {
+    const storedUser = localStorage.getItem("user");
+    return storedUser ? JSON.parse(storedUser) : null;
+  },
+  save(newSession) {
+    localStorage.setItem("token", newSession.token);
+    localStorage.setItem("user", JSON.stringify(newSession.user));
+  },
+  clear() {
+    localStorage.removeItem("token");
+    localStorage.removeItem("user");
+  },
 };
 
-// status 0 means the request never reached the server.
+const UNREACHABLE_SERVER_STATUS = 0;
+
 class ApiError extends Error {
-  constructor(message, status) { super(message); this.status = status; }
-  get retryable() { return this.status === 0 || this.status >= 500; }
+  constructor(message, status) {
+    super(message);
+    this.status = status;
+  }
+
+  get retryable() {
+    return this.status === UNREACHABLE_SERVER_STATUS || this.status >= 500;
+  }
 }
 
 async function api(path, { method = "GET", json, form } = {}) {
   const headers = {};
   if (session.token) headers.Authorization = "Bearer " + session.token;
   let body;
-  if (json !== undefined) { headers["Content-Type"] = "application/json"; body = JSON.stringify(json); }
+  if (json !== undefined) {
+    headers["Content-Type"] = "application/json";
+    body = JSON.stringify(json);
+  }
   if (form) body = form;
-  let res;
-  try { res = await fetch("/api" + path, { method, headers, body }); }
-  catch (_) { throw new ApiError("Não foi possível falar com o servidor. Confira sua conexão e tente novamente.", 0); }
-  if (res.status === 401 && session.token && !path.startsWith("/auth")) { session.clear(); renderNav(); }
-  if (!res.ok) throw new ApiError(errorText(res.status, await res.text().catch(() => "")), res.status);
-  return res.status === 204 ? null : res.json();
+
+  let response;
+  try {
+    response = await fetch("/api" + path, { method, headers, body });
+  } catch (_) {
+    throw new ApiError("Não foi possível falar com o servidor. Confira sua conexão e tente novamente.", UNREACHABLE_SERVER_STATUS);
+  }
+
+  const sessionWasRejected = response.status === 401 && session.token && !path.startsWith("/auth");
+  if (sessionWasRejected) {
+    session.clear();
+    renderNavBar();
+  }
+  if (!response.ok) {
+    const responseText = await response.text().catch(() => "");
+    throw new ApiError(friendlyErrorMessage(response.status, responseText), response.status);
+  }
+  return response.status === 204 ? null : response.json();
 }
 
-// The API answers errors in plain Portuguese; anything else (framework parse
-// errors, proxy pages) gets a generic message for its status.
-function errorText(status, text) {
-  const readable = text && text.length < 300 && !text.startsWith("<") && !text.startsWith("Error in $");
-  if (readable) return text;
+function friendlyErrorMessage(status, responseText) {
+  if (isReadableServerMessage(responseText)) return responseText;
   if (status === 413) return "Arquivo grande demais (máximo 5 MB).";
   if (status >= 500) return "O servidor teve um problema. Tente novamente em instantes.";
   if (status === 404) return "Não encontrado.";
   return "Dados inválidos. Confira o formulário e tente novamente.";
 }
 
-// --- icons & category styling ----------------------------------------------------
+function isReadableServerMessage(text) {
+  const looksLikeHtmlPage = text.startsWith("<");
+  const looksLikeJsonParserError = text.startsWith("Error in $");
+  return text && text.length < 300 && !looksLikeHtmlPage && !looksLikeJsonParserError;
+}
 
-// Stroke icons (paths adapted from Lucide, ISC license).
 const ICONS = {
   film: `<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M7 3v18M17 3v18M3 7.5h4M3 12h18M3 16.5h4M17 7.5h4M17 16.5h4"/>`,
   tv: `<rect width="20" height="15" x="2" y="7" rx="2"/><path d="m17 2-5 5-5-5"/>`,
@@ -61,305 +97,364 @@ const ICONS = {
   back: `<path d="m12 19-7-7 7-7M19 12H5"/>`,
   star: `<path d="m12 2 3.1 6.3 6.9 1-5 4.9 1.2 6.8L12 17.8 5.8 21l1.2-6.8-5-4.9 6.9-1z"/>`,
 };
-const icon = (name) =>
+
+const iconSvg = (name) =>
   `<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name]}</svg>`;
 
-const PROVIDER_STYLE = {
+const PROVIDER_STYLES = {
   "tmdb-movie": { icon: "film", color: "#ff4d6d" },
   "tmdb-tv": { icon: "tv", color: "#8b5cf6" },
   musicbrainz: { icon: "disc", color: "#14b8a6" },
   rawg: { icon: "gamepad", color: "#3b82f6" },
   openlibrary: { icon: "book", color: "#f59e0b" },
 };
-const catStyle = (c) => PROVIDER_STYLE[c.provider] || { icon: "sparkles", color: "#ec4899" };
-const badge = (c) => { const s = catStyle(c); return `<span class="badge-ico" style="--c:${s.color}">${icon(s.icon)}</span>`; };
-const dot = (c) => { const s = catStyle(c); return `<span class="dot" style="--c:${s.color}">${icon(s.icon)}</span>`; };
-const catSubtitle = (c) => c.description || (c.ownerId !== null ? "categoria da comunidade" : "");
+const CUSTOM_CATEGORY_STYLE = { icon: "sparkles", color: "#ec4899" };
 
-// --- helpers --------------------------------------------------------------------
+const categoryStyle = (category) => PROVIDER_STYLES[category.provider] || CUSTOM_CATEGORY_STYLE;
 
-const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+function categoryBadge(category) {
+  const style = categoryStyle(category);
+  return `<span class="badge-ico" style="--c:${style.color}">${iconSvg(style.icon)}</span>`;
+}
 
-function stars(rating) {
+function categoryDot(category) {
+  const style = categoryStyle(category);
+  return `<span class="dot" style="--c:${style.color}">${iconSvg(style.icon)}</span>`;
+}
+
+const isCommunityCategory = (category) => category.ownerId !== null;
+const categorySubtitle = (category) =>
+  category.description || (isCommunityCategory(category) ? "categoria da comunidade" : "");
+
+const categoryHref = (slug) => `#/c/${encodeURIComponent(slug)}`;
+const newItemHref = (slug) => `${categoryHref(slug)}/novo`;
+const itemHref = (itemId) => `#/item/${itemId}`;
+const diaryHref = (username) => `#/u/${encodeURIComponent(username)}`;
+const goTo = (hash) => { location.hash = hash; };
+
+const HTML_ESCAPES = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
+const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (character) => HTML_ESCAPES[character]);
+
+function starsText(rating) {
   if (!rating) return "";
-  return "★".repeat(Math.floor(rating / 2)) + (rating % 2 ? "½" : "");
+  const fullStars = Math.floor(rating / 2);
+  const hasHalfStar = rating % 2 === 1;
+  return "★".repeat(fullStars) + (hasHalfStar ? "½" : "");
 }
 
-function cover(url, title, square) {
-  const cls = "cover" + (square ? " square" : "");
-  if (!url) return `<div class="${cls} cover-fallback">${esc(title)}</div>`;
-  return `<img class="${cls}" src="${esc(url)}" alt="${esc(title)}" loading="lazy" onerror="coverFailed(this)">`;
+function coverHtml(imageUrl, title, isSquare) {
+  const classes = "cover" + (isSquare ? " square" : "");
+  if (!imageUrl) return `<div class="${classes} cover-fallback">${escapeHtml(title)}</div>`;
+  return `<img class="${classes}" src="${escapeHtml(imageUrl)}" alt="${escapeHtml(title)}" loading="lazy" onerror="replaceBrokenCover(this)">`;
 }
 
-// Providers sometimes have no artwork (e.g. Cover Art Archive answers 404).
-window.coverFailed = (img) => {
-  const div = document.createElement("div");
-  div.className = img.className + " cover-fallback";
-  div.textContent = img.alt;
-  img.replaceWith(div);
+window.replaceBrokenCover = (brokenImage) => {
+  const fallback = document.createElement("div");
+  fallback.className = brokenImage.className + " cover-fallback";
+  fallback.textContent = brokenImage.alt;
+  brokenImage.replaceWith(fallback);
 };
 
-const isSquare = (source) => source === "musicbrainz";
-const dateOf = (r) => r.consumedOn || r.createdAt.slice(0, 10);
-// Profile picture, or the first letter of the username when there is none.
-const avatar = (name, url) => url
-  ? `<img class="avatar" src="${esc(url)}" alt="">`
-  : `<span class="avatar">${esc((name || "?")[0])}</span>`;
+const hasSquareCover = (source) => source === "musicbrainz";
+const reviewDate = (review) => review.consumedOn || review.createdAt.slice(0, 10);
 
-function card({ title, subtitle, year, imageUrl, source }, onClick, index = 0) {
-  const el = document.createElement("div");
-  el.className = "card";
-  el.style.setProperty("--i", index);
-  el.innerHTML = `${cover(imageUrl, title, isSquare(source))}
-    <div class="card-title">${esc(title)}</div>
-    <div class="card-sub">${esc([subtitle, year].filter(Boolean).join(" · "))}</div>`;
-  el.addEventListener("click", onClick);
-  return el;
+const avatarHtml = (username, avatarUrl) => avatarUrl
+  ? `<img class="avatar" src="${escapeHtml(avatarUrl)}" alt="">`
+  : `<span class="avatar">${escapeHtml((username || "?")[0])}</span>`;
+
+function itemCard({ title, subtitle, year, imageUrl, source }, onClick, index = 0) {
+  const card = document.createElement("div");
+  card.className = "card";
+  card.style.setProperty("--i", index);
+  card.innerHTML = `${coverHtml(imageUrl, title, hasSquareCover(source))}
+    <div class="card-title">${escapeHtml(title)}</div>
+    <div class="card-sub">${escapeHtml([subtitle, year].filter(Boolean).join(" · "))}</div>`;
+  card.addEventListener("click", onClick);
+  return card;
 }
 
-// Shows an error; failures worth retrying (server down, provider timeout) get a
-// "tentar novamente" button when the caller passes a retry function.
-function showError(target, err, retry) {
-  target.textContent = err.message || String(err);
-  if (retry && err.retryable) {
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = "btn secondary retry";
-    btn.textContent = "tentar novamente";
-    btn.onclick = () => { target.textContent = ""; retry(); };
-    target.append(" ", btn);
-  }
+function showError(target, error, retry) {
+  target.textContent = error.message || String(error);
+  if (retry && error.retryable) target.append(" ", retryButton(target, retry));
 }
 
-// Today in the user's time zone, as yyyy-mm-dd (toISOString would give UTC).
-function localToday() {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+function retryButton(errorTarget, retry) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "btn secondary retry";
+  button.textContent = "tentar novamente";
+  button.onclick = () => {
+    errorTarget.textContent = "";
+    retry();
+  };
+  return button;
 }
-const MIN_DIARY_DATE = "1900-01-01";
-const MAX_ITEM_YEAR = new Date().getFullYear() + 5;
 
-// --- navigation -----------------------------------------------------------------
+function todayInLocalTimeZone() {
+  const now = new Date();
+  const twoDigits = (number) => String(number).padStart(2, "0");
+  return `${now.getFullYear()}-${twoDigits(now.getMonth() + 1)}-${twoDigits(now.getDate())}`;
+}
 
-function renderNav() {
-  const u = session.user;
-  const h = location.hash || "#/";
-  const pill = (href, label, active, extra = false) =>
-    `<a class="nav-pill ${active ? "active" : ""} ${extra ? "nav-extra" : ""}" href="${href}">${label}</a>`;
-  const browsing = h === "#/" || h.startsWith("#/c/") || h.startsWith("#/item/");
-  nav.innerHTML = `
+const formatDateForPeople = (isoDate) => isoDate.split("-").reverse().join("/");
+
+function renderNavBar() {
+  const user = session.user;
+  const hash = location.hash || "#/";
+  const isBrowsing = hash === "#/" || hash.startsWith("#/c/") || hash.startsWith("#/item/");
+  const navPill = (href, label, isActive, hideOnSmallScreens = false) =>
+    `<a class="nav-pill ${isActive ? "active" : ""} ${hideOnSmallScreens ? "nav-extra" : ""}" href="${href}">${label}</a>`;
+
+  navBar.innerHTML = `
     <div class="nav-links">
-      ${pill("#/", "explorar", browsing)}
-      ${u ? pill(`#/u/${encodeURIComponent(u.username)}`, "diário", h.startsWith("#/u/"), true) : ""}
-      ${u ? pill("#/nova-categoria", "criar", h === "#/nova-categoria", true) : ""}
+      ${navPill("#/", "explorar", isBrowsing)}
+      ${user ? navPill(diaryHref(user.username), "diário", hash.startsWith("#/u/"), true) : ""}
+      ${user ? navPill("#/nova-categoria", "criar", hash === "#/nova-categoria", true) : ""}
     </div>
     <div class="nav-actions">
-      ${u
-        ? `<a class="profile-btn" href="#/u/${encodeURIComponent(u.username)}" title="@${esc(u.username)} — meu diário">${avatar(u.username, u.avatarUrl)}</a>
-           <button class="round danger" id="logout" title="Sair">${icon("power")}</button>`
-        : `<a class="btn secondary" href="#/entrar">entrar</a>
-           <a class="btn nav-extra" href="#/criar-conta">${icon("user")} criar conta</a>`}
+      ${user ? loggedInActionsHtml(user) : loggedOutActionsHtml()}
     </div>`;
-  const logout = document.getElementById("logout");
-  if (logout) logout.onclick = async () => {
-    try { await api("/auth/logout", { method: "POST" }); } catch (_) { /* session may already be gone */ }
-    session.clear(); location.hash = "#/"; renderNav();
-  };
+
+  const logoutButton = document.getElementById("logout");
+  if (logoutButton) logoutButton.onclick = logOut;
+}
+
+const loggedInActionsHtml = (user) =>
+  `<a class="profile-btn" href="${diaryHref(user.username)}" title="@${escapeHtml(user.username)} — meu diário">${avatarHtml(user.username, user.avatarUrl)}</a>
+           <button class="round danger" id="logout" title="Sair">${iconSvg("power")}</button>`;
+
+const loggedOutActionsHtml = () =>
+  `<a class="btn secondary" href="#/entrar">entrar</a>
+           <a class="btn nav-extra" href="#/criar-conta">${iconSvg("user")} criar conta</a>`;
+
+async function logOut() {
+  try {
+    await api("/auth/logout", { method: "POST" });
+  } catch (_) {}
+  session.clear();
+  goTo("#/");
+  renderNavBar();
 }
 
 const routes = [
   [/^#?\/?$/, () => homePage()],
   [/^#\/c\/([^/]+)$/, (slug) => categoryPage(decodeURIComponent(slug))],
   [/^#\/c\/([^/]+)\/novo$/, (slug) => newItemPage(decodeURIComponent(slug))],
-  [/^#\/item\/(\d+)$/, (id) => itemPage(Number(id))],
-  [/^#\/u\/([^/]+)$/, (name) => diaryPage(decodeURIComponent(name))],
+  [/^#\/item\/(\d+)$/, (itemId) => itemPage(Number(itemId))],
+  [/^#\/u\/([^/]+)$/, (username) => diaryPage(decodeURIComponent(username))],
   [/^#\/nova-categoria$/, () => newCategoryPage()],
   [/^#\/entrar$/, () => authPage("login")],
   [/^#\/criar-conta$/, () => authPage("register")],
 ];
 
-const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
-let routeSeq = 0;
-
-// Renders the page for the current hash: the old page fades out, the new one
-// slides in once its data has loaded.
-async function route() {
-  const seq = ++routeSeq;
-  renderNav();
-  const hash = location.hash || "#/";
-  const match = routes.map(([re, handler]) => [hash.match(re), handler]).find(([m]) => m);
-
-  if (app.childElementCount && !reducedMotion.matches) {
-    app.classList.remove("page-in");
-    app.classList.add("page-out");
-    await new Promise((r) => setTimeout(r, 140));
-    if (seq !== routeSeq) return; // another navigation started meanwhile
+function findRoute(hash) {
+  for (const [pattern, renderPage] of routes) {
+    const match = hash.match(pattern);
+    if (match) return () => renderPage(...match.slice(1));
   }
-  // Only show the loading pill when the data is actually slow to arrive.
-  // (Pages that render in steps may already be on screen by then; leave those alone.)
-  const loading = setTimeout(() => {
-    if (seq === routeSeq && !app.childElementCount) app.innerHTML = `<span class="loading">carregando…</span>`;
-  }, 250);
-  app.classList.remove("page-out");
-  app.innerHTML = "";
-
-  try {
-    if (!match) app.innerHTML = `<div class="panel"><h1>página não encontrada</h1><p><a class="btn" href="#/">voltar ao início</a></p></div>`;
-    else await match[1](...match[0].slice(1));
-  } catch (e) {
-    if (seq !== routeSeq) return;
-    app.innerHTML = `<div class="panel"><h1>ops!</h1><p class="error" id="page-error"></p><a class="btn secondary" href="#/">voltar ao início</a></div>`;
-    showError(document.getElementById("page-error"), e, route);
-  } finally {
-    clearTimeout(loading);
-  }
-  if (seq !== routeSeq) return;
-  window.scrollTo(0, 0);
-  app.classList.remove("page-in");
-  void app.offsetWidth; // restart the entrance animation
-  app.classList.add("page-in");
+  return null;
 }
 
-// --- pages ----------------------------------------------------------------------
+const NOT_FOUND_PAGE_HTML =
+  `<div class="panel"><h1>página não encontrada</h1><p><a class="btn" href="#/">voltar ao início</a></p></div>`;
+const ERROR_PAGE_HTML =
+  `<div class="panel"><h1>ops!</h1><p class="error" id="page-error"></p><a class="btn secondary" href="#/">voltar ao início</a></div>`;
+
+let latestNavigationId = 0;
+
+async function renderCurrentRoute() {
+  const navigationId = ++latestNavigationId;
+  const isStillCurrent = () => navigationId === latestNavigationId;
+  renderNavBar();
+  const renderMatchedPage = findRoute(location.hash || "#/");
+
+  if (page.childElementCount && !prefersReducedMotion.matches) {
+    await fadeOutCurrentPage();
+    if (!isStillCurrent()) return;
+  }
+  const loadingIndicatorTimer = setTimeout(() => {
+    if (isStillCurrent() && !page.childElementCount) page.innerHTML = `<span class="loading">carregando…</span>`;
+  }, LOADING_INDICATOR_DELAY_MS);
+  page.classList.remove("page-out");
+  page.innerHTML = "";
+
+  try {
+    if (renderMatchedPage) await renderMatchedPage();
+    else page.innerHTML = NOT_FOUND_PAGE_HTML;
+  } catch (error) {
+    if (!isStillCurrent()) return;
+    page.innerHTML = ERROR_PAGE_HTML;
+    showError(document.getElementById("page-error"), error, renderCurrentRoute);
+  } finally {
+    clearTimeout(loadingIndicatorTimer);
+  }
+  if (!isStillCurrent()) return;
+  window.scrollTo(0, 0);
+  playPageEntrance();
+}
+
+async function fadeOutCurrentPage() {
+  page.classList.remove("page-in");
+  page.classList.add("page-out");
+  await new Promise((resolve) => setTimeout(resolve, PAGE_FADE_OUT_MS));
+}
+
+function playPageEntrance() {
+  page.classList.remove("page-in");
+  void page.offsetWidth;
+  page.classList.add("page-in");
+}
 
 async function homePage() {
   const categories = await api("/categories");
-  app.innerHTML = `
+  page.innerHTML = `
     <section class="home">
       <div>
         <h1 class="menu-head">o que vai ser hoje?<strong>escolha uma <span>categoria</span></strong></h1>
         <div class="menu">
-          ${categories.map((c, i) => `
-            <a class="menu-card" style="--i:${i}" href="#/c/${encodeURIComponent(c.slug)}">
-              ${badge(c)}
-              <span><span class="menu-title">${esc(c.name)}</span><span class="menu-sub">${esc(catSubtitle(c))}</span></span>
-            </a>`).join("")}
-          <a class="menu-pill" style="--i:${categories.length}" href="#/nova-categoria"><span class="box">${icon("plus")}</span>criar categoria</a>
+          ${categories.map(categoryMenuCardHtml).join("")}
+          <a class="menu-pill" style="--i:${categories.length}" href="#/nova-categoria"><span class="box">${iconSvg("plus")}</span>criar categoria</a>
         </div>
       </div>
-      <div class="hero">${orbit(categories)}</div>
+      <div class="hero">${orbitHtml(categories)}</div>
     </section>`;
-  startOrbit();
+  startOrbitAnimation();
 }
 
-// Cartoon objects, one per kind of category, that orbit on the home page.
-const INK = `stroke="#16112b" stroke-width="5" stroke-linejoin="round" stroke-linecap="round"`;
+const categoryMenuCardHtml = (category, index) => `
+            <a class="menu-card" style="--i:${index}" href="${categoryHref(category.slug)}">
+              ${categoryBadge(category)}
+              <span><span class="menu-title">${escapeHtml(category.name)}</span><span class="menu-sub">${escapeHtml(categorySubtitle(category))}</span></span>
+            </a>`;
+
+const INK_STROKE = `stroke="#16112b" stroke-width="5" stroke-linejoin="round" stroke-linecap="round"`;
 const ORBITERS = [
   { provider: "tmdb-movie", label: "Filmes", svg: `
-    <rect x="16" y="50" width="88" height="56" rx="8" fill="#ff4d6d" ${INK}/>
-    <rect x="16" y="50" width="88" height="14" fill="#fff" ${INK}/>
-    <path d="M34 50l-8 14M54 50l-8 14M74 50l-8 14M94 50l-8 14" ${INK}/>
-    <g transform="rotate(-16 18 48)"><rect x="16" y="32" width="88" height="16" rx="3" fill="#fff" ${INK}/>
-      <path d="M36 32l-8 16M56 32l-8 16M76 32l-8 16M96 32l-8 16" ${INK}/></g>
+    <rect x="16" y="50" width="88" height="56" rx="8" fill="#ff4d6d" ${INK_STROKE}/>
+    <rect x="16" y="50" width="88" height="14" fill="#fff" ${INK_STROKE}/>
+    <path d="M34 50l-8 14M54 50l-8 14M74 50l-8 14M94 50l-8 14" ${INK_STROKE}/>
+    <g transform="rotate(-16 18 48)"><rect x="16" y="32" width="88" height="16" rx="3" fill="#fff" ${INK_STROKE}/>
+      <path d="M36 32l-8 16M56 32l-8 16M76 32l-8 16M96 32l-8 16" ${INK_STROKE}/></g>
     <circle cx="19" cy="49" r="5" fill="#16112b"/>` },
   { provider: "tmdb-tv", label: "Séries", svg: `
-    <path d="M60 34 40 10M60 34 82 12" ${INK}/><circle cx="40" cy="10" r="5" fill="#ffc93c" ${INK}/><circle cx="82" cy="12" r="5" fill="#ffc93c" ${INK}/>
-    <rect x="12" y="34" width="96" height="70" rx="16" fill="#8b5cf6" ${INK}/>
-    <rect x="22" y="44" width="62" height="50" rx="10" fill="#9ff0ff" ${INK}/>
+    <path d="M60 34 40 10M60 34 82 12" ${INK_STROKE}/><circle cx="40" cy="10" r="5" fill="#ffc93c" ${INK_STROKE}/><circle cx="82" cy="12" r="5" fill="#ffc93c" ${INK_STROKE}/>
+    <rect x="12" y="34" width="96" height="70" rx="16" fill="#8b5cf6" ${INK_STROKE}/>
+    <rect x="22" y="44" width="62" height="50" rx="10" fill="#9ff0ff" ${INK_STROKE}/>
     <path d="M30 54q8-6 16 0" stroke="#fff" stroke-width="4" fill="none" stroke-linecap="round"/>
-    <circle cx="96" cy="56" r="5" fill="#ffc93c" ${INK}/><circle cx="96" cy="78" r="5" fill="#ff6f91" ${INK}/>
-    <path d="M32 104l-6 10M88 104l6 10" ${INK}/>` },
+    <circle cx="96" cy="56" r="5" fill="#ffc93c" ${INK_STROKE}/><circle cx="96" cy="78" r="5" fill="#ff6f91" ${INK_STROKE}/>
+    <path d="M32 104l-6 10M88 104l6 10" ${INK_STROKE}/>` },
   { provider: "musicbrainz", label: "Álbuns", svg: `
-    <circle cx="60" cy="60" r="48" fill="#1d1638" ${INK}/>
+    <circle cx="60" cy="60" r="48" fill="#1d1638" ${INK_STROKE}/>
     <circle cx="60" cy="60" r="38" fill="none" stroke="#3d3470" stroke-width="2.5"/><circle cx="60" cy="60" r="29" fill="none" stroke="#3d3470" stroke-width="2.5"/>
-    <circle cx="60" cy="60" r="17" fill="#14b8a6" ${INK}/><circle cx="60" cy="60" r="3.5" fill="#16112b"/>
+    <circle cx="60" cy="60" r="17" fill="#14b8a6" ${INK_STROKE}/><circle cx="60" cy="60" r="3.5" fill="#16112b"/>
     <path d="M32 36a36 36 0 0 1 22-12" stroke="#fff" stroke-width="4" fill="none" stroke-linecap="round" opacity=".7"/>` },
   { provider: "rawg", label: "Jogos", svg: `
-    <path d="M32 38h56a24 24 0 0 1 24 24c0 20-6 38-19 38-9 0-13-11-22-11H49c-9 0-13 11-22 11-13 0-19-18-19-38a24 24 0 0 1 24-24z" fill="#3b82f6" ${INK}/>
+    <path d="M32 38h56a24 24 0 0 1 24 24c0 20-6 38-19 38-9 0-13-11-22-11H49c-9 0-13 11-22 11-13 0-19-18-19-38a24 24 0 0 1 24-24z" fill="#3b82f6" ${INK_STROKE}/>
     <path d="M30 56v20M20 66h20" stroke="#fff" stroke-width="7" stroke-linecap="round"/>
-    <circle cx="84" cy="58" r="6" fill="#ffc93c" ${INK}/><circle cx="96" cy="72" r="6" fill="#ff6f91" ${INK}/>
+    <circle cx="84" cy="58" r="6" fill="#ffc93c" ${INK_STROKE}/><circle cx="96" cy="72" r="6" fill="#ff6f91" ${INK_STROKE}/>
     <path d="M52 50h16" stroke="#16112b" stroke-width="5" stroke-linecap="round"/>` },
   { provider: "openlibrary", label: "Livros", svg: `
     <g transform="rotate(-10 60 60)">
-      <rect x="28" y="14" width="68" height="92" rx="6" fill="#fff" ${INK}/>
-      <rect x="22" y="12" width="68" height="92" rx="6" fill="#f59e0b" ${INK}/>
-      <rect x="22" y="12" width="14" height="92" rx="4" fill="#d97706" ${INK}/>
+      <rect x="28" y="14" width="68" height="92" rx="6" fill="#fff" ${INK_STROKE}/>
+      <rect x="22" y="12" width="68" height="92" rx="6" fill="#f59e0b" ${INK_STROKE}/>
+      <rect x="22" y="12" width="14" height="92" rx="4" fill="#d97706" ${INK_STROKE}/>
       <path d="M48 36h30M48 48h22" stroke="#fff" stroke-width="5" stroke-linecap="round"/>
     </g>` },
   { provider: null, label: "Crie sua categoria", svg: `
-    <rect x="20" y="50" width="80" height="58" rx="6" fill="#ec4899" ${INK}/>
-    <rect x="14" y="34" width="92" height="20" rx="6" fill="#f472b6" ${INK}/>
+    <rect x="20" y="50" width="80" height="58" rx="6" fill="#ec4899" ${INK_STROKE}/>
+    <rect x="14" y="34" width="92" height="20" rx="6" fill="#f472b6" ${INK_STROKE}/>
     <path d="M60 34v74" stroke="#ffc93c" stroke-width="10"/>
-    <path d="M60 32c-10-18-30-14-24-4 4 6 16 6 24 4zM60 32c10-18 30-14 24-4-4 6-16 6-24 4z" fill="#ffc93c" ${INK}/>
+    <path d="M60 32c-10-18-30-14-24-4 4 6 16 6 24 4zM60 32c10-18 30-14 24-4-4 6-16 6-24 4z" fill="#ffc93c" ${INK_STROKE}/>
     <text x="30" y="94" font-family="Fredoka, sans-serif" font-weight="700" font-size="30" fill="#fff" stroke="#16112b" stroke-width="4" paint-order="stroke">?</text>` },
 ];
 
-function orbit(categories) {
-  const hrefFor = (provider) => {
+function orbitHtml(categories) {
+  const orbiterHref = (provider) => {
     if (!provider) return "#/nova-categoria";
-    const c = categories.find((c) => c.provider === provider);
-    return c ? `#/c/${encodeURIComponent(c.slug)}` : "#/";
+    const category = categories.find((candidate) => candidate.provider === provider);
+    return category ? categoryHref(category.slug) : "#/";
   };
   return `<div class="orbit" id="orbit">
       <span class="orbit-core"></span>
       <span class="orbit-ring"></span>
-      ${ORBITERS.map((o) => `<a class="orbiter" href="${hrefFor(o.provider)}" title="${esc(o.label)}">
-        <svg viewBox="0 0 120 120" aria-hidden="true">${o.svg}</svg><span class="orbiter-label">${esc(o.label)}</span></a>`).join("")}
+      ${ORBITERS.map((orbiter) => `<a class="orbiter" href="${orbiterHref(orbiter.provider)}" title="${escapeHtml(orbiter.label)}">
+        <svg viewBox="0 0 120 120" aria-hidden="true">${orbiter.svg}</svg><span class="orbiter-label">${escapeHtml(orbiter.label)}</span></a>`).join("")}
     </div>
     <span class="hero-caption">do blockbuster ao pastel da feira.</span>`;
 }
 
-// Moves the orbiters along a tilted ellipse; the ones "behind" shrink and dim.
-function startOrbit() {
-  const el = document.getElementById("orbit");
-  if (!el) return;
-  const items = [...el.querySelectorAll(".orbiter")];
-  const ring = el.querySelector(".orbit-ring");
-  const tilt = (-9 * Math.PI) / 180;
-  let angle = 0;
-  let paused = false;
-  el.addEventListener("mouseenter", () => (paused = true));
-  el.addEventListener("mouseleave", () => (paused = false));
+const ORBIT_TILT_RADIANS = (-9 * Math.PI) / 180;
+const ORBIT_RADIANS_PER_SECOND = 0.45;
 
-  const place = () => {
-    const w = el.clientWidth, h = el.clientHeight;
-    const rx = w * 0.4, ry = h * 0.17, cx = w / 2, cy = h * 0.5;
-    ring.style.width = `${rx * 2}px`;
-    ring.style.height = `${ry * 2}px`;
-    items.forEach((item, i) => {
-      const a = angle + (i * 2 * Math.PI) / items.length;
-      const dx = rx * Math.cos(a), dy = ry * Math.sin(a);
-      const x = cx + dx * Math.cos(tilt) - dy * Math.sin(tilt);
-      const y = cy + dx * Math.sin(tilt) + dy * Math.cos(tilt);
-      const depth = (Math.sin(a) + 1) / 2; // 0 = behind, 1 = in front
-      const wobble = Math.sin(a * 2) * 10;
-      item.style.transform = `translate(${x}px, ${y}px) translate(-50%, -50%) scale(${0.55 + 0.55 * depth}) rotate(${wobble}deg)`;
-      item.style.zIndex = String(Math.round(depth * 100));
-      item.style.filter = `brightness(${0.7 + 0.3 * depth})`;
+function startOrbitAnimation() {
+  const orbit = document.getElementById("orbit");
+  if (!orbit) return;
+  const orbiters = [...orbit.querySelectorAll(".orbiter")];
+  const ring = orbit.querySelector(".orbit-ring");
+  let rotationAngle = 0;
+  let isPaused = false;
+  orbit.addEventListener("mouseenter", () => (isPaused = true));
+  orbit.addEventListener("mouseleave", () => (isPaused = false));
+
+  const positionOrbiters = () => {
+    const width = orbit.clientWidth;
+    const height = orbit.clientHeight;
+    const radiusX = width * 0.4;
+    const radiusY = height * 0.17;
+    const centerX = width / 2;
+    const centerY = height * 0.5;
+    ring.style.width = `${radiusX * 2}px`;
+    ring.style.height = `${radiusY * 2}px`;
+    orbiters.forEach((orbiter, index) => {
+      const angle = rotationAngle + (index * 2 * Math.PI) / orbiters.length;
+      const offsetX = radiusX * Math.cos(angle);
+      const offsetY = radiusY * Math.sin(angle);
+      const x = centerX + offsetX * Math.cos(ORBIT_TILT_RADIANS) - offsetY * Math.sin(ORBIT_TILT_RADIANS);
+      const y = centerY + offsetX * Math.sin(ORBIT_TILT_RADIANS) + offsetY * Math.cos(ORBIT_TILT_RADIANS);
+      const closenessToViewer = (Math.sin(angle) + 1) / 2;
+      const wobbleDegrees = Math.sin(angle * 2) * 10;
+      orbiter.style.transform =
+        `translate(${x}px, ${y}px) translate(-50%, -50%) scale(${0.55 + 0.55 * closenessToViewer}) rotate(${wobbleDegrees}deg)`;
+      orbiter.style.zIndex = String(Math.round(closenessToViewer * 100));
+      orbiter.style.filter = `brightness(${0.7 + 0.3 * closenessToViewer})`;
     });
   };
 
-  if (matchMedia("(prefers-reduced-motion: reduce)").matches) { place(); return; }
-  let last = performance.now();
-  const frame = (now) => {
-    if (!el.isConnected) return; // the page changed
-    if (!paused) angle += ((now - last) / 1000) * 0.45;
-    last = now;
-    place();
-    requestAnimationFrame(frame);
+  if (prefersReducedMotion.matches) {
+    positionOrbiters();
+    return;
+  }
+  let previousFrameTime = performance.now();
+  const animateFrame = (frameTime) => {
+    const orbitLeftThePage = !orbit.isConnected;
+    if (orbitLeftThePage) return;
+    if (!isPaused) rotationAngle += ((frameTime - previousFrameTime) / 1000) * ORBIT_RADIANS_PER_SECOND;
+    previousFrameTime = frameTime;
+    positionOrbiters();
+    requestAnimationFrame(animateFrame);
   };
-  requestAnimationFrame(frame);
+  requestAnimationFrame(animateFrame);
 }
 
 async function categoryPage(slug) {
   const categories = await api("/categories");
-  const current = categories.find((c) => c.slug === slug);
-  if (!current) throw new Error("Categoria não encontrada");
+  const category = categories.find((candidate) => candidate.slug === slug);
+  if (!category) throw new Error("Categoria não encontrada");
   const user = session.user;
-  const canAdd = user && (current.ownerId === null || current.ownerId === user.id);
+  const canAddItems = user && (category.ownerId === null || category.ownerId === user.id);
 
-  app.innerHTML = `
-    <div class="chips">${categories.map((c) =>
-      `<a class="chip ${c.id === current.id ? "active" : ""}" href="#/c/${encodeURIComponent(c.slug)}">${dot(c)}${esc(c.name)}</a>`).join("")}
+  page.innerHTML = `
+    <div class="chips">${categories.map((other) =>
+      `<a class="chip ${other.id === category.id ? "active" : ""}" href="${categoryHref(other.slug)}">${categoryDot(other)}${escapeHtml(other.name)}</a>`).join("")}
     </div>
     <div class="panel cat-head tilt-l">
-      ${badge(current)}
-      <div class="grow"><h1>${esc(current.name)}</h1><div class="muted">${esc(catSubtitle(current))}</div></div>
-      ${canAdd ? `<a class="btn" href="#/c/${encodeURIComponent(current.slug)}/novo">${icon("plus")} adicionar item</a>` : ""}
+      ${categoryBadge(category)}
+      <div class="grow"><h1>${escapeHtml(category.name)}</h1><div class="muted">${escapeHtml(categorySubtitle(category))}</div></div>
+      ${canAddItems ? `<a class="btn" href="${newItemHref(category.slug)}">${iconSvg("plus")} adicionar item</a>` : ""}
     </div>
     <form class="searchbar" id="search">
-      ${icon("search")}
-      <input type="text" name="q" placeholder="buscar em ${esc(current.name.toLowerCase())}…" autofocus>
+      ${iconSvg("search")}
+      <input type="text" name="q" placeholder="buscar em ${escapeHtml(category.name.toLowerCase())}…" autofocus>
       <button class="btn">buscar</button>
     </form>
     <div class="panel">
@@ -369,96 +464,110 @@ async function categoryPage(slug) {
     </div>`;
 
   const results = document.getElementById("results");
-  const error = document.getElementById("error");
-  const fail = (e, retry) => { error.hidden = false; showError(error, e, retry); };
-
-  const showItems = (items) => {
-    results.innerHTML = items.length ? "" : `<p class="muted">Nada por aqui ainda. Busque algo acima para começar.</p>`;
-    items.forEach((it, i) => results.appendChild(card(it, () => (location.hash = `#/item/${it.id}`), i)));
+  const errorBox = document.getElementById("error");
+  const showSearchError = (error, retry) => {
+    errorBox.hidden = false;
+    showError(errorBox, error, retry);
   };
-  showItems(await api(`/categories/${encodeURIComponent(current.slug)}/items`));
 
-  const search = async (q) => {
-    error.hidden = true;
-    document.getElementById("list-title").textContent = `resultados para “${q}”`;
+  const showRecentItems = (items) => {
+    results.innerHTML = items.length ? "" : `<p class="muted">Nada por aqui ainda. Busque algo acima para começar.</p>`;
+    items.forEach((item, index) => results.appendChild(itemCard(item, () => goTo(itemHref(item.id)), index)));
+  };
+  showRecentItems(await api(`/categories/${encodeURIComponent(category.slug)}/items`));
+
+  const search = async (query) => {
+    errorBox.hidden = true;
+    document.getElementById("list-title").textContent = `resultados para “${query}”`;
     results.innerHTML = `<p class="muted searching">Buscando…</p>`;
     try {
-      const hits = await api(`/categories/${encodeURIComponent(current.slug)}/search?q=${encodeURIComponent(q)}`);
+      const hits = await api(`/categories/${encodeURIComponent(category.slug)}/search?q=${encodeURIComponent(query)}`);
       results.innerHTML = hits.length ? "" : `<p class="muted">Nenhum resultado.</p>`;
-      hits.forEach((hit, i) => results.appendChild(card(hit.item, () => openHit(current, hit, fail), i)));
-    } catch (e) { results.innerHTML = ""; fail(e, () => search(q)); }
+      hits.forEach((hit, index) =>
+        results.appendChild(itemCard(hit.item, () => openSearchHit(category, hit, showSearchError), index)));
+    } catch (error) {
+      results.innerHTML = "";
+      showSearchError(error, () => search(query));
+    }
   };
-  document.getElementById("search").addEventListener("submit", (ev) => {
-    ev.preventDefault();
-    const q = new FormData(ev.target).get("q").trim();
-    if (q) search(q);
+  document.getElementById("search").addEventListener("submit", (event) => {
+    event.preventDefault();
+    const query = new FormData(event.target).get("q").trim();
+    if (query) search(query);
   });
 }
 
-async function openHit(category, hit, fail) {
-  if (hit.itemId) { location.hash = `#/item/${hit.itemId}`; return; }
-  if (!session.user) { location.hash = "#/entrar"; return; }
+async function openSearchHit(category, hit, showSearchError) {
+  if (hit.itemId) {
+    goTo(itemHref(hit.itemId));
+    return;
+  }
+  if (!session.user) {
+    goTo("#/entrar");
+    return;
+  }
   try {
-    const item = await api(`/categories/${encodeURIComponent(category.slug)}/import`, { method: "POST", json: hit.item });
-    location.hash = `#/item/${item.id}`;
-  } catch (e) { fail(e, () => openHit(category, hit, fail)); }
+    const importedItem = await api(`/categories/${encodeURIComponent(category.slug)}/import`, { method: "POST", json: hit.item });
+    goTo(itemHref(importedItem.id));
+  } catch (error) {
+    showSearchError(error, () => openSearchHit(category, hit, showSearchError));
+  }
 }
 
-async function itemPage(id) {
-  const d = await api(`/items/${id}`);
-  const { item, category } = d;
+async function itemPage(itemId) {
+  const detail = await api(`/items/${itemId}`);
+  const { item, category } = detail;
   const user = session.user;
-  const avg = d.averageRating ? (d.averageRating / 2).toFixed(1) : null;
-  const catStyleVars = catStyle(category);
+  const averageStars = detail.averageRating ? (detail.averageRating / 2).toFixed(1) : null;
 
-  app.innerHTML = `
+  page.innerHTML = `
     <div class="panel">
       <div class="detail">
-        <div class="poster">${cover(item.imageUrl, item.title, isSquare(item.source))}</div>
+        <div class="poster">${coverHtml(item.imageUrl, item.title, hasSquareCover(item.source))}</div>
         <div>
-          <a class="crumb" href="#/c/${encodeURIComponent(category.slug)}"><span class="dot" style="--c:${catStyleVars.color}">${icon(catStyleVars.icon)}</span>${esc(category.name)}</a>
-          <h1>${esc(item.title)} ${item.year ? `<span class="year">${item.year}</span>` : ""}</h1>
-          ${item.subtitle ? `<div class="muted">${esc(item.subtitle)}</div>` : ""}
-          <div class="score">${avg
-            ? `<span class="big">★ ${avg}</span> de 5 · ${d.ratingCount} nota(s)`
+          <a class="crumb" href="${categoryHref(category.slug)}">${categoryDot(category)}${escapeHtml(category.name)}</a>
+          <h1>${escapeHtml(item.title)} ${item.year ? `<span class="year">${item.year}</span>` : ""}</h1>
+          ${item.subtitle ? `<div class="muted">${escapeHtml(item.subtitle)}</div>` : ""}
+          <div class="score">${averageStars
+            ? `<span class="big">★ ${averageStars}</span> de 5 · ${detail.ratingCount} nota(s)`
             : `<span class="big">★ –</span> sem notas ainda`}</div>
-          ${item.description ? `<p>${esc(item.description)}</p>` : ""}
+          ${item.description ? `<p>${escapeHtml(item.description)}</p>` : ""}
         </div>
       </div>
     </div>
-    ${user ? reviewForm() : `<div class="panel tilt-r"><a href="#/entrar" class="btn">entre para avaliar</a></div>`}
+    ${user ? reviewFormHtml() : `<div class="panel tilt-r"><a href="#/entrar" class="btn">entre para avaliar</a></div>`}
     <div class="panel">
       <h2 class="section-title">reviews</h2>
-      <div id="reviews">${d.reviews.length ? d.reviews.map(reviewHtml).join("") : `<span class="muted">Ninguém comentou ainda.</span>`}</div>
+      <div id="reviews">${detail.reviews.length ? detail.reviews.map(reviewHtml).join("") : `<span class="muted">Ninguém comentou ainda.</span>`}</div>
     </div>`;
 
-  if (user) bindReviewForm(id);
-  app.querySelectorAll("[data-delete]").forEach((btn) => btn.addEventListener("click", async () => {
+  if (user) setUpReviewForm(itemId);
+  page.querySelectorAll("[data-delete]").forEach((deleteButton) => deleteButton.addEventListener("click", async () => {
     if (!confirm("Apagar essa review?")) return;
-    await api(`/reviews/${btn.dataset.delete}`, { method: "DELETE" });
-    itemPage(id);
+    await api(`/reviews/${deleteButton.dataset.delete}`, { method: "DELETE" });
+    itemPage(itemId);
   }));
 }
 
-function reviewHtml(r) {
-  const mine = session.user && session.user.id === r.userId;
+function reviewHtml(review) {
+  const isMine = session.user && session.user.id === review.userId;
   return `<div class="review">
-    ${avatar(r.username, r.avatarUrl)}
+    ${avatarHtml(review.username, review.avatarUrl)}
     <div>
       <div class="review-meta">
-        <a href="#/u/${encodeURIComponent(r.username)}"><strong>${esc(r.username)}</strong></a>
-        <span class="stars">${stars(r.rating)}</span>
-        ${r.liked ? `<span class="heart">♥</span>` : ""}
-        <span class="muted">${esc(dateOf(r))}</span>
-        ${mine ? `<button class="link" data-delete="${r.id}">apagar</button>` : ""}
+        <a href="${diaryHref(review.username)}"><strong>${escapeHtml(review.username)}</strong></a>
+        <span class="stars">${starsText(review.rating)}</span>
+        ${review.liked ? `<span class="heart">♥</span>` : ""}
+        <span class="muted">${escapeHtml(reviewDate(review))}</span>
+        ${isMine ? `<button class="link" data-delete="${review.id}">apagar</button>` : ""}
       </div>
-      ${r.body ? `<div>${esc(r.body)}</div>` : ""}
+      ${review.body ? `<div>${escapeHtml(review.body)}</div>` : ""}
     </div>
   </div>`;
 }
 
-function reviewForm() {
-  const today = localToday();
+function reviewFormHtml() {
+  const today = todayInLocalTimeZone();
   return `<form class="panel form tilt-r" id="review-form" novalidate>
     <h2 class="section-title" style="margin:0">registrar no diário</h2>
     <div class="review-top">
@@ -472,118 +581,179 @@ function reviewForm() {
   </form>`;
 }
 
-function bindReviewForm(itemId) {
-  let rating = null;
-  const starEl = document.getElementById("star-input");
-  const paint = (value) => {
-    starEl.innerHTML = [1, 2, 3, 4, 5].map((i) => {
-      const fill = value >= i * 2 ? "full" : value === i * 2 - 1 ? "half" : "";
-      return `<span data-i="${i}">★${fill ? `<span class="${fill}">★</span>` : ""}</span>`;
-    }).join("");
-  };
-  const valueAt = (ev) => {
-    const s = ev.target.closest("[data-i]");
-    if (!s) return null;
-    const half = ev.clientX - s.getBoundingClientRect().left < s.getBoundingClientRect().width / 2;
-    return Number(s.dataset.i) * 2 - (half ? 1 : 0);
-  };
-  paint(0);
-  starEl.addEventListener("mousemove", (ev) => { const v = valueAt(ev); if (v) paint(v); });
-  starEl.addEventListener("mouseleave", () => paint(rating || 0));
-  starEl.addEventListener("click", (ev) => { const v = valueAt(ev); if (v) { rating = v; paint(rating); } });
-  document.getElementById("clear-stars").onclick = () => { rating = null; paint(0); };
-
+function setUpReviewForm(itemId) {
+  const getRating = setUpStarInput(document.getElementById("star-input"), document.getElementById("clear-stars"));
   const form = document.getElementById("review-form");
-  const error = document.getElementById("review-error");
-  const save = async () => {
-    const f = new FormData(form);
-    const body = f.get("body").trim();
-    if (!rating && !body && !f.get("liked")) { error.textContent = "Dê uma nota, curta ou escreva algo."; return; }
-    // Typed dates bypass the picker's min/max, so check them here as well.
-    const date = form.consumedOn;
-    if (date.validity.badInput) { error.textContent = "Data inválida."; return; }
-    if (date.value && (date.value < date.min || date.value > date.max)) {
-      error.textContent = `A data precisa estar entre 1900 e hoje (${date.max.split("-").reverse().join("/")}).`;
+  const errorBox = document.getElementById("review-error");
+
+  const saveReview = async () => {
+    const formData = new FormData(form);
+    const rating = getRating();
+    const body = formData.get("body").trim();
+    const liked = !!formData.get("liked");
+    const dateInput = form.consumedOn;
+    const validationError = reviewValidationError(rating, body, liked, dateInput);
+    if (validationError) {
+      errorBox.textContent = validationError;
       return;
     }
-    const button = document.getElementById("review-save");
-    button.disabled = true;
+    const saveButton = document.getElementById("review-save");
+    saveButton.disabled = true;
     try {
-      await api(`/items/${itemId}/reviews`, { method: "POST", json: {
-        rating, body: body || null, liked: !!f.get("liked"), consumedOn: date.value || null } });
+      await api(`/items/${itemId}/reviews`, {
+        method: "POST",
+        json: { rating, body: body || null, liked, consumedOn: dateInput.value || null },
+      });
       itemPage(itemId);
-    } catch (e) { showError(error, e, save); button.disabled = false; }
+    } catch (error) {
+      showError(errorBox, error, saveReview);
+      saveButton.disabled = false;
+    }
   };
-  form.addEventListener("submit", (ev) => { ev.preventDefault(); save(); });
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    saveReview();
+  });
 }
 
-// A one-shot notice shown on the next page that reads it (e.g. after sign-up).
-let flashMessage = null;
+function reviewValidationError(rating, body, liked, dateInput) {
+  if (!rating && !body && !liked) return "Dê uma nota, curta ou escreva algo.";
+  if (dateInput.validity.badInput) return "Data inválida.";
+  const date = dateInput.value;
+  if (date && (date < dateInput.min || date > dateInput.max)) {
+    return `A data precisa estar entre 1900 e hoje (${formatDateForPeople(dateInput.max)}).`;
+  }
+  return null;
+}
 
-async function diaryPage(name) {
-  const entries = await api(`/users/${encodeURIComponent(name)}/diary`);
-  const me = session.user;
-  const own = me && me.username === name.toLowerCase();
-  const photo = own ? me.avatarUrl : entries[0]?.review.avatarUrl;
-  const notice = flashMessage;
-  flashMessage = null;
-  app.innerHTML = `
+function setUpStarInput(starInput, clearButton) {
+  let chosenRating = null;
+  const paintStars = (rating) => {
+    starInput.innerHTML = [1, 2, 3, 4, 5].map((starNumber) => {
+      const fillClass = rating >= starNumber * 2 ? "full" : rating === starNumber * 2 - 1 ? "half" : "";
+      return `<span data-i="${starNumber}">★${fillClass ? `<span class="${fillClass}">★</span>` : ""}</span>`;
+    }).join("");
+  };
+  const ratingUnderPointer = (event) => {
+    const star = event.target.closest("[data-i]");
+    if (!star) return null;
+    const starBox = star.getBoundingClientRect();
+    const isLeftHalf = event.clientX - starBox.left < starBox.width / 2;
+    return Number(star.dataset.i) * 2 - (isLeftHalf ? 1 : 0);
+  };
+
+  paintStars(0);
+  starInput.addEventListener("mousemove", (event) => {
+    const hoveredRating = ratingUnderPointer(event);
+    if (hoveredRating) paintStars(hoveredRating);
+  });
+  starInput.addEventListener("mouseleave", () => paintStars(chosenRating || 0));
+  starInput.addEventListener("click", (event) => {
+    const clickedRating = ratingUnderPointer(event);
+    if (clickedRating) {
+      chosenRating = clickedRating;
+      paintStars(chosenRating);
+    }
+  });
+  clearButton.onclick = () => {
+    chosenRating = null;
+    paintStars(0);
+  };
+  return () => chosenRating;
+}
+
+let noticeForNextPage = null;
+
+function takeNoticeForThisPage() {
+  const notice = noticeForNextPage;
+  noticeForNextPage = null;
+  return notice;
+}
+
+async function diaryPage(username) {
+  const entries = await api(`/users/${encodeURIComponent(username)}/diary`);
+  const loggedInUser = session.user;
+  const isOwnDiary = loggedInUser && loggedInUser.username === username.toLowerCase();
+  const avatarUrl = isOwnDiary ? loggedInUser.avatarUrl : entries[0]?.review.avatarUrl;
+  const notice = takeNoticeForThisPage();
+
+  page.innerHTML = `
     <div class="panel profile-head tilt-l">
-      ${own
+      ${isOwnDiary
         ? `<label class="avatar-pick" title="Trocar foto de perfil">
              <input type="file" accept="image/jpeg,image/png,image/gif,image/webp" hidden id="photo-input">
-             <span class="avatar-preview filled" id="photo-preview">${avatar(name, photo)}</span>
+             <span class="avatar-preview filled" id="photo-preview">${avatarHtml(username, avatarUrl)}</span>
            </label>`
-        : avatar(name, photo)}
-      <div><h1>${esc(name)}</h1><div class="muted">${entries.length} registro(s) no diário${own ? " · clique na foto para trocar" : ""}</div>
-        <div class="error" id="photo-error">${esc(notice || "")}</div></div>
+        : avatarHtml(username, avatarUrl)}
+      <div><h1>${escapeHtml(username)}</h1><div class="muted">${entries.length} registro(s) no diário${isOwnDiary ? " · clique na foto para trocar" : ""}</div>
+        <div class="error" id="photo-error">${escapeHtml(notice || "")}</div></div>
     </div>
-    <div class="panel">${entries.length ? entries.map(({ review: r, item }) => `
-      <div class="diary-row">
-        <span class="date-tag">${esc(dateOf(r))}</span>
-        <a href="#/item/${item.id}">${cover(item.imageUrl, "", isSquare(item.source))}</a>
-        <div><a href="#/item/${item.id}"><strong>${esc(item.title)}</strong></a> <span class="muted">${item.year || ""}</span>
-          ${r.body ? `<div class="muted">${esc(r.body.length > 140 ? r.body.slice(0, 140) + "…" : r.body)}</div>` : ""}</div>
-        <div><span class="stars">${stars(r.rating)}</span> ${r.liked ? `<span class="heart">♥</span>` : ""}</div>
-      </div>`).join("") : `<span class="muted">Nenhum registro ainda.</span>`}
+    <div class="panel">${entries.length ? entries.map(diaryRowHtml).join("") : `<span class="muted">Nenhum registro ainda.</span>`}
     </div>`;
 
-  if (own) {
-    const input = document.getElementById("photo-input");
-    const error = document.getElementById("photo-error");
-    bindPhotoPreview(input, document.getElementById("photo-preview"), error);
-    input.addEventListener("change", async () => {
-      if (!input.files[0]) return;
-      try { await uploadAvatar(input.files[0]); renderNav(); }
-      catch (e) { showError(error, e); }
-    });
-  }
+  if (isOwnDiary) setUpAvatarChange();
+}
+
+const truncate = (text, maxLength) => (text.length > maxLength ? text.slice(0, maxLength) + "…" : text);
+
+const diaryRowHtml = ({ review, item }) => `
+      <div class="diary-row">
+        <span class="date-tag">${escapeHtml(reviewDate(review))}</span>
+        <a href="${itemHref(item.id)}">${coverHtml(item.imageUrl, "", hasSquareCover(item.source))}</a>
+        <div><a href="${itemHref(item.id)}"><strong>${escapeHtml(item.title)}</strong></a> <span class="muted">${item.year || ""}</span>
+          ${review.body ? `<div class="muted">${escapeHtml(truncate(review.body, DIARY_EXCERPT_LENGTH))}</div>` : ""}</div>
+        <div><span class="stars">${starsText(review.rating)}</span> ${review.liked ? `<span class="heart">♥</span>` : ""}</div>
+      </div>`;
+
+function setUpAvatarChange() {
+  const photoInput = document.getElementById("photo-input");
+  const errorBox = document.getElementById("photo-error");
+  showPhotoPreviewOnChange(photoInput, document.getElementById("photo-preview"), errorBox);
+  photoInput.addEventListener("change", async () => {
+    const chosenPhoto = photoInput.files[0];
+    if (!chosenPhoto) return;
+    try {
+      await uploadAvatar(chosenPhoto);
+      renderNavBar();
+    } catch (error) {
+      showError(errorBox, error);
+    }
+  });
+}
+
+function redirectToLoginUnlessLoggedIn() {
+  if (session.user) return false;
+  goTo("#/entrar");
+  return true;
 }
 
 function newCategoryPage() {
-  if (!session.user) { location.hash = "#/entrar"; return; }
-  app.innerHTML = `<div class="narrow"><form class="panel form tilt-l" id="cat-form">
+  if (redirectToLoginUnlessLoggedIn()) return;
+  page.innerHTML = `<div class="narrow"><form class="panel form tilt-l" id="cat-form">
       <h1>nova categoria</h1>
       <p class="muted" style="margin:0">Avalie qualquer coisa: vinhos, restaurantes, trilhas, cafés…</p>
       <label>Nome <input type="text" name="name" maxlength="60" required></label>
       <label>Descrição <input type="text" name="description"></label>
       <div class="error" id="cat-error"></div>
-      <div><button class="btn">${icon("plus")} criar</button></div>
+      <div><button class="btn">${iconSvg("plus")} criar</button></div>
     </form></div>`;
-  document.getElementById("cat-form").addEventListener("submit", async (ev) => {
-    ev.preventDefault();
-    const f = new FormData(ev.target);
+  document.getElementById("cat-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const formData = new FormData(event.target);
     try {
-      const c = await api("/categories", { method: "POST", json: { name: f.get("name"), description: f.get("description") || null } });
-      location.hash = `#/c/${encodeURIComponent(c.slug)}/novo`;
-    } catch (e) { showError(document.getElementById("cat-error"), e); }
+      const newCategory = { name: formData.get("name"), description: formData.get("description") || null };
+      const createdCategory = await api("/categories", { method: "POST", json: newCategory });
+      goTo(newItemHref(createdCategory.slug));
+    } catch (error) {
+      showError(document.getElementById("cat-error"), error);
+    }
   });
 }
 
 function newItemPage(slug) {
-  if (!session.user) { location.hash = "#/entrar"; return; }
-  app.innerHTML = `<div class="narrow"><form class="panel form tilt-r" id="item-form">
-      <a class="crumb" href="#/c/${encodeURIComponent(slug)}">${icon("back")} voltar</a>
+  if (redirectToLoginUnlessLoggedIn()) return;
+  page.innerHTML = `<div class="narrow"><form class="panel form tilt-r" id="item-form">
+      <a class="crumb" href="${categoryHref(slug)}">${iconSvg("back")} voltar</a>
       <h1>adicionar item</h1>
       <label>Nome <input type="text" name="title" maxlength="200" required></label>
       <label>Subtítulo (autor, artista, marca…) <input type="text" name="subtitle"></label>
@@ -593,128 +763,163 @@ function newItemPage(slug) {
       <div class="error" id="item-error"></div>
       <div><button class="btn">salvar</button></div>
     </form></div>`;
-  document.getElementById("item-form").addEventListener("submit", async (ev) => {
-    ev.preventDefault();
-    const button = ev.target.querySelector("button");
-    button.disabled = true;
+  document.getElementById("item-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const saveButton = event.target.querySelector("button");
+    saveButton.disabled = true;
     try {
-      const item = await api(`/categories/${encodeURIComponent(slug)}/items`, { method: "POST", form: new FormData(ev.target) });
-      location.hash = `#/item/${item.id}`;
-    } catch (e) { showError(document.getElementById("item-error"), e); button.disabled = false; }
+      const createdItem = await api(`/categories/${encodeURIComponent(slug)}/items`, { method: "POST", form: new FormData(event.target) });
+      goTo(itemHref(createdItem.id));
+    } catch (error) {
+      showError(document.getElementById("item-error"), error);
+      saveButton.disabled = false;
+    }
   });
 }
 
-const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
-
-// Shows a chosen image file inside a round preview element.
-function bindPhotoPreview(input, preview, error) {
-  input.addEventListener("change", () => {
-    const file = input.files[0];
-    if (!file) return;
-    if (file.size > MAX_IMAGE_BYTES) { input.value = ""; error.textContent = "A foto pode ter no máximo 5 MB."; return; }
-    error.textContent = "";
-    preview.innerHTML = `<img src="${URL.createObjectURL(file)}" alt="">`;
+function showPhotoPreviewOnChange(fileInput, preview, errorBox) {
+  fileInput.addEventListener("change", () => {
+    const chosenFile = fileInput.files[0];
+    if (!chosenFile) return;
+    if (chosenFile.size > MAX_IMAGE_BYTES) {
+      fileInput.value = "";
+      errorBox.textContent = "A foto pode ter no máximo 5 MB.";
+      return;
+    }
+    errorBox.textContent = "";
+    preview.innerHTML = `<img src="${URL.createObjectURL(chosenFile)}" alt="">`;
   });
 }
 
-async function uploadAvatar(file) {
+async function uploadAvatar(photoFile) {
   const form = new FormData();
-  form.append("image", file);
-  const user = await api("/me/avatar", { method: "POST", form });
-  session.save({ token: session.token, user });
-  return user;
+  form.append("image", photoFile);
+  const updatedUser = await api("/me/avatar", { method: "POST", form });
+  session.save({ token: session.token, user: updatedUser });
+  return updatedUser;
 }
 
-// Login and sign-up share one page with two tabs.
 function authPage(mode) {
-  const register = mode === "register";
-  app.innerHTML = `<div class="narrow"><form class="panel form tilt-l" id="auth-form" novalidate>
+  const isSignUp = mode === "register";
+  page.innerHTML = `<div class="narrow"><form class="panel form tilt-l" id="auth-form" novalidate>
       <div class="auth-tabs">
-        <a class="${register ? "" : "active"}" href="#/entrar">entrar</a>
-        <a class="${register ? "active" : ""}" href="#/criar-conta">criar conta</a>
+        <a class="${isSignUp ? "" : "active"}" href="#/entrar">entrar</a>
+        <a class="${isSignUp ? "active" : ""}" href="#/criar-conta">criar conta</a>
       </div>
-      ${register ? `
+      ${isSignUp ? `
         <label class="avatar-pick" title="Escolher foto de perfil">
           <input type="file" name="image" accept="image/jpeg,image/png,image/gif,image/webp" hidden>
-          <span class="avatar-preview" id="avatar-preview">${icon("user")}</span>
+          <span class="avatar-preview" id="avatar-preview">${iconSvg("user")}</span>
           <span>foto de perfil <span class="muted">(opcional)</span></span>
         </label>` : ""}
       <label>Usuário <input type="text" name="username" autocomplete="username" maxlength="30" required>
-        ${register ? `<span class="hint">3 a 30 caracteres: letras minúsculas, números ou _</span>` : ""}</label>
-      <label>Senha <input type="password" name="password" autocomplete="${register ? "new-password" : "current-password"}" required>
-        ${register ? `<span class="hint">pelo menos 8 caracteres</span>` : ""}</label>
-      ${register ? `<label>Confirmar senha <input type="password" name="confirm" autocomplete="new-password" required></label>` : ""}
+        ${isSignUp ? `<span class="hint">3 a 30 caracteres: letras minúsculas, números ou _</span>` : ""}</label>
+      <label>Senha <input type="password" name="password" autocomplete="${isSignUp ? "new-password" : "current-password"}" required>
+        ${isSignUp ? `<span class="hint">pelo menos 8 caracteres</span>` : ""}</label>
+      ${isSignUp ? `<label>Confirmar senha <input type="password" name="confirm" autocomplete="new-password" required></label>` : ""}
       <div class="error" id="auth-error"></div>
-      <div><button class="btn">${register ? "criar conta" : "entrar"}</button></div>
-      <p class="muted switch">${register
+      <div><button class="btn">${isSignUp ? "criar conta" : "entrar"}</button></div>
+      <p class="muted switch">${isSignUp
         ? `Já tem conta? <a href="#/entrar">Entrar</a>`
         : `Ainda não tem conta? <a href="#/criar-conta">Criar conta</a>`}</p>
     </form></div>`;
 
   const form = document.getElementById("auth-form");
-  const error = document.getElementById("auth-error");
-  if (register) bindPhotoPreview(form.image, document.getElementById("avatar-preview"), error);
+  const errorBox = document.getElementById("auth-error");
+  if (isSignUp) showPhotoPreviewOnChange(form.image, document.getElementById("avatar-preview"), errorBox);
 
-  form.addEventListener("submit", async (ev) => {
-    ev.preventDefault();
-    const f = new FormData(form);
-    const username = f.get("username").trim().toLowerCase();
-    const password = f.get("password");
-    if (register) {
-      if (!/^[a-z0-9_]{3,30}$/.test(username)) { error.textContent = "Usuário: 3 a 30 caracteres, só letras minúsculas, números ou _."; return; }
-      if (password.length < 8) { error.textContent = "A senha precisa ter pelo menos 8 caracteres."; return; }
-      if (password !== f.get("confirm")) { error.textContent = "As senhas não conferem."; return; }
-    } else if (!username || !password) { error.textContent = "Preencha usuário e senha."; return; }
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const formData = new FormData(form);
+    const username = formData.get("username").trim().toLowerCase();
+    const password = formData.get("password");
+    const validationError = isSignUp
+      ? signUpValidationError(username, password, formData.get("confirm"))
+      : loginValidationError(username, password);
+    if (validationError) {
+      errorBox.textContent = validationError;
+      return;
+    }
 
-    const button = form.querySelector("button");
-    button.disabled = true;
+    const submitButton = form.querySelector("button");
+    submitButton.disabled = true;
     try {
-      session.save(await api(`/auth/${register ? "register" : "login"}`, { method: "POST", json: { username, password } }));
-    } catch (e) { showError(error, e); button.disabled = false; return; }
+      session.save(await api(`/auth/${isSignUp ? "register" : "login"}`, { method: "POST", json: { username, password } }));
+    } catch (error) {
+      showError(errorBox, error);
+      submitButton.disabled = false;
+      return;
+    }
 
-    const photo = register ? f.get("image") : null;
-    if (photo && photo.size) {
-      try { await uploadAvatar(photo); }
-      catch (e) {
-        // The account exists already; the photo can be retried from the profile page.
-        location.hash = `#/u/${encodeURIComponent(username)}`;
-        flashMessage = "Conta criada, mas a foto não foi enviada: " + e.message;
+    const chosenPhoto = isSignUp ? formData.get("image") : null;
+    if (chosenPhoto && chosenPhoto.size) {
+      try {
+        await uploadAvatar(chosenPhoto);
+      } catch (error) {
+        goTo(diaryHref(username));
+        noticeForNextPage = "Conta criada, mas a foto não foi enviada: " + error.message;
         return;
       }
     }
-    location.hash = "#/";
+    goTo("#/");
   });
 }
 
-// Moves the backdrop's layers a little with the pointer and the scroll position;
-// layers with a larger data-depth are "closer" and move more.
-function startParallax() {
-  const layers = [...document.querySelectorAll(".scene .layer")].map((el) => ({ el, depth: Number(el.dataset.depth) }));
-  if (!layers.length || reducedMotion.matches) return;
-  const target = { x: 0, y: 0 }, now = { x: 0, y: 0 };
-  let running = false;
-  const tick = () => {
-    now.x += (target.x - now.x) * 0.08;
-    now.y += (target.y - now.y) * 0.08;
-    const scroll = Math.min(window.scrollY, 600) / 600;
-    for (const { el, depth } of layers) {
-      el.style.transform = `translate(${(-now.x * 26 * depth).toFixed(2)}px, ${(-now.y * 14 * depth - scroll * 40 * depth).toFixed(2)}px)`;
-    }
-    running = Math.abs(target.x - now.x) > 0.001 || Math.abs(target.y - now.y) > 0.001;
-    if (running) requestAnimationFrame(tick);
-  };
-  const kick = () => { if (!running) { running = true; requestAnimationFrame(tick); } };
-  window.addEventListener("pointermove", (ev) => {
-    if (ev.pointerType !== "mouse") return;
-    target.x = ev.clientX / innerWidth - 0.5;
-    target.y = ev.clientY / innerHeight - 0.5;
-    kick();
-  }, { passive: true });
-  window.addEventListener("scroll", kick, { passive: true });
+const VALID_USERNAME = /^[a-z0-9_]{3,30}$/;
+
+function signUpValidationError(username, password, passwordConfirmation) {
+  if (!VALID_USERNAME.test(username)) return "Usuário: 3 a 30 caracteres, só letras minúsculas, números ou _.";
+  if (password.length < 8) return "A senha precisa ter pelo menos 8 caracteres.";
+  if (password !== passwordConfirmation) return "As senhas não conferem.";
+  return null;
 }
 
-window.addEventListener("hashchange", route);
-route();
-startParallax();
-// Drop a stored session the server no longer accepts (api() clears it on 401).
+function loginValidationError(username, password) {
+  if (!username || !password) return "Preencha usuário e senha.";
+  return null;
+}
+
+const PARALLAX_EASING = 0.08;
+const PARALLAX_MAX_SCROLL_PX = 600;
+
+function startBackdropParallax() {
+  const layers = [...document.querySelectorAll(".scene .layer")]
+    .map((element) => ({ element, depth: Number(element.dataset.depth) }));
+  if (!layers.length || prefersReducedMotion.matches) return;
+  const pointerTarget = { x: 0, y: 0 };
+  const currentOffset = { x: 0, y: 0 };
+  let isAnimating = false;
+
+  const animateTowardPointer = () => {
+    currentOffset.x += (pointerTarget.x - currentOffset.x) * PARALLAX_EASING;
+    currentOffset.y += (pointerTarget.y - currentOffset.y) * PARALLAX_EASING;
+    const scrollProgress = Math.min(window.scrollY, PARALLAX_MAX_SCROLL_PX) / PARALLAX_MAX_SCROLL_PX;
+    for (const { element, depth } of layers) {
+      const shiftX = -currentOffset.x * 26 * depth;
+      const shiftY = -currentOffset.y * 14 * depth - scrollProgress * 40 * depth;
+      element.style.transform = `translate(${shiftX.toFixed(2)}px, ${shiftY.toFixed(2)}px)`;
+    }
+    const hasReachedTarget =
+      Math.abs(pointerTarget.x - currentOffset.x) <= 0.001 && Math.abs(pointerTarget.y - currentOffset.y) <= 0.001;
+    isAnimating = !hasReachedTarget;
+    if (isAnimating) requestAnimationFrame(animateTowardPointer);
+  };
+  const startAnimatingIfIdle = () => {
+    if (isAnimating) return;
+    isAnimating = true;
+    requestAnimationFrame(animateTowardPointer);
+  };
+
+  window.addEventListener("pointermove", (event) => {
+    if (event.pointerType !== "mouse") return;
+    pointerTarget.x = event.clientX / innerWidth - 0.5;
+    pointerTarget.y = event.clientY / innerHeight - 0.5;
+    startAnimatingIfIdle();
+  }, { passive: true });
+  window.addEventListener("scroll", startAnimatingIfIdle, { passive: true });
+}
+
+window.addEventListener("hashchange", renderCurrentRoute);
+renderCurrentRoute();
+startBackdropParallax();
 if (session.token) api("/me").catch(() => {});
